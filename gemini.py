@@ -1,9 +1,6 @@
-from distro import name
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-from typing_extensions import TypedDict,Optional
-import typing
 
 load_dotenv()
 

@@ -173,6 +173,68 @@ def modify_code(code,language,instruction):
         )
     )
     return {"code":format_python_code(res.text,language)['formatted_code'],"additional_tasks":eval(res.text)['additional_tasks']}
+def suggest_modification_to_resolve_error(error, code):
+    res = client.models.generate_content(
+        model='gemini-3-flash-preview',
+        contents=f"""
+        You are an expert Python developer and code fixer.
+        The user provided an existing code snippet and a runtime or syntax error message.
+        Analyze the error and modify the code so that the error is resolved.
+
+        Error message:
+        {error}
+
+        Original code:
+        {code}
+
+        Return strictly valid Python code as a single string in JSON with key `fixed_code`.
+        Also include a short `fix_description` (1-2 sentences) that explains what changed.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "fixed_code": {"type": "STRING"},
+                    "fix_description": {"type": "STRING"}
+                },
+                "required": ["fixed_code", "fix_description"]
+            }
+        )
+    )
+
+    parsed = eval(res.text)
+    return {
+        "code": parsed.get("fixed_code", code),
+        "description": parsed.get("fix_description", "No change made")
+    }
+def generate_skills(topic):
+    with open("skill_template.md","r") as f:
+        file = f.read()
+    res = client.models.generate_content(
+        model='gemini-3-flash-preview',
+        contents=[f"""
+        You are given with a skill template in the form of a .md file.
+        Your job is to generate a skill for the agent for the topic "{topic}" which can be used to complete the task.
+        Generate it in the form of md so that LLMs like you can understand it easily.
+        """,file],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "skill": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["skill"]
+            }
+        )
+    )
+
+    with open(f"skills/{topic.replace(' ','_')}_skill.md","w") as f:
+        f.write(eval(res.text)['skill'])
+    return "Skill generated successfully"
 #code = open("backend-dev/app.py","r").read()
 #print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
 #code = format_python_code(code)    
@@ -180,3 +242,4 @@ def modify_code(code,language,instruction):
 #    f.write(code['formatted_code'])
 #print(give_info_for_coding_task("You are good at building frontends", "Design a react app which can be used to order food for a restaurant"))
 #print(process_query_to_json("List the agents which build the front end and status active"))
+print(generate_skills("react app development end to end"))

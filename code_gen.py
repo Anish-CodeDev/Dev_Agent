@@ -19,14 +19,13 @@ def install_packages(packages,language,folder_name,prerequisite_commands=''):
         return False
 
 class ModifyCode:
-    def __init__(self,code,language,instruction):
-        self.code = code
+    def __init__(self,language,instruction):
         self.language = language
         self.instruction = instruction
-    
-    def modify_code_gen(self):
+        
+    def modify_code_gen(self,code):
         try:
-            res = modify_code(self.code,self.language,self.instruction)
+            res = modify_code(code,self.language,self.instruction)
             if res['additional_tasks']:
                 res = modify_code(res['code'],self.language,res['additional_tasks'])
             return res['code']

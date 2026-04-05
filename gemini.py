@@ -18,7 +18,7 @@ def process_query_to_json(query: str):
     )
 
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemma-4-26b-a4b-it',
         contents=f"Query: {query}",
         config=types.GenerateContentConfig(
             system_instruction=sys_instr,
@@ -56,7 +56,7 @@ def process_query_to_json(query: str):
 
 def give_info_for_coding_task(sys_instr:str,query:str):
     res = client.models.generate_content(
-        model='gemini-3-flash-preview',
+        model='gemma-4-26b-a4b-it',
         contents=f"""
         You are given with a task to complete: {query}
         
@@ -117,7 +117,7 @@ def give_info_for_coding_task(sys_instr:str,query:str):
 
 def format_python_code(code,language):
     res = client.models.generate_content(
-        model='gemini-3-flash-preview',
+        model='gemma-4-26b-a4b-it',
         contents=[
             f"""
             You are given with a code in {language}, you have to format the code in a way that it is easy to read and understand.
@@ -144,7 +144,7 @@ code = 'from flask import Flask, render_template, request\napp = Flask(__name__)
 
 def modify_code(code,language,instruction):
     res = client.models.generate_content(
-        model='gemini-3-flash-preview',
+        model='gemma-4-26b-a4b-it',
         contents=f"""
         You are given with a code in {language}, you have to modify the code in a way that it is easy to read and understand according to the user's instruction.
         Also review the code and fix any errors in the code.
@@ -175,7 +175,7 @@ def modify_code(code,language,instruction):
     return {"code":format_python_code(res.text,language)['formatted_code'],"additional_tasks":eval(res.text)['additional_tasks']}
 def suggest_modification_to_resolve_error(error, code):
     res = client.models.generate_content(
-        model='gemini-3-flash-preview',
+        model='gemma-4-26b-a4b-it',
         contents=f"""
         You are an expert Python developer and code fixer.
         The user provided an existing code snippet and a runtime or syntax error message.
@@ -209,13 +209,14 @@ def suggest_modification_to_resolve_error(error, code):
         "description": parsed.get("fix_description", "No change made")
     }
 def generate_skills(topic):
-    with open("skill_template.md","r") as f:
+    with open("skills/skill_template.md","r") as f:
         file = f.read()
     res = client.models.generate_content(
-        model='gemini-3-flash-preview',
+        model='gemma-4-26b-a4b-it',
         contents=[f"""
         You are given with a skill template in the form of a .md file.
         Your job is to generate a skill for the agent for the topic "{topic}" which can be used to complete the task.
+        The skill.md must take care of informing the model about the task and how to complete it.(Using programming languages and NOT BUILDING ANOTHER SKILL FILE)
         Generate it in the form of md so that LLMs like you can understand it easily.
         """,file],
         config=types.GenerateContentConfig(
@@ -235,11 +236,100 @@ def generate_skills(topic):
     with open(f"skills/{topic.replace(' ','_')}_skill.md","w") as f:
         f.write(eval(res.text)['skill'])
     return "Skill generated successfully"
-#code = open("backend-dev/app.py","r").read()
-#print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
-#code = format_python_code(code)    
-#with open("backend-dev/app.py","w") as f:
-#    f.write(code['formatted_code'])
-#print(give_info_for_coding_task("You are good at building frontends", "Design a react app which can be used to order food for a restaurant"))
-#print(process_query_to_json("List the agents which build the front end and status active"))
-print(generate_skills("react app development end to end"))
+
+def generate_tasks(skill_file_path: str, task: str):
+    with open(skill_file_path, "r") as f:
+        skill_content = f.read()
+        
+    res = client.models.generate_content(
+        model='gemma-4-26b-a4b-it',
+        contents=[f"""
+        You are an expert developer. You are provided with a skill file containing instructions and guidelines, and a specific task to accomplish.
+        Your goal is to complete the task by rigorously following the given skill guidelines.
+        Determine the necessary terminal commands to run and the files to be created to accomplish this task.
+        """, skill_content, f"Task to complete: {task}"],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "commands": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "STRING"
+                        }
+                    },
+                    "files_to_be_created": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_name": {
+                                    "type": "STRING"
+                                },
+                                "content": {
+                                    "type": "STRING"
+                                }
+                            },
+                            "required": ["file_name", "content"]
+                        }
+                    }
+                },
+                "required": ["commands", "files_to_be_created"]
+            }
+        )
+    )
+    return eval(res.text)
+
+def combine_tool_and_model_res(model_res, tool_res, user_ques,memory_context):
+    res = client.models.generate_content(
+        model='gemma-4-26b-a4b-it',
+        contents=f"""
+        You are given with a model response and a tool response.
+        User's question: {user_ques}
+        Model response: {model_res}
+        Tool response: {tool_res}
+        Memory Context: {memory_context}
+        Step 1 - Extract memory:
+        Identify any key facts or personal information about the user present in this conversation
+        (e.g. their name, preferences, goals, or any context useful to remember in future turns).
+        Store these as concise bullet points in the 'memory' field.
+        If there is nothing worth remembering, leave 'memory' as an empty string.
+
+        Step 2 - Build combined_response:
+        Using the memory you just extracted (Step 1) as context, combine the model response and tool response
+        into a single meaningful, personalised reply to the user's question.
+        - Do NOT just concatenate; summarise and make it coherent.
+        - Use any relevant facts from memory to make the response feel personalised (e.g. address the user by name if known).
+        - Discard any components that are not relevant to the user's question.
+        - The 'memory' field must NOT appear verbatim inside 'combined_response'.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "combined_response": {
+                        "type": "STRING"
+                    },
+                    "memory": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["combined_response", "memory"]
+            }
+        )
+    )
+    parsed = eval(res.text)
+    return parsed['combined_response'], parsed['memory']
+
+if __name__ == "__main__":
+    #code = open("backend-dev/app.py","r").read()
+    #print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
+    #code = format_python_code(code)    
+    #with open("backend-dev/app.py","w") as f:
+    #    f.write(code['formatted_code'])
+    #print(give_info_for_coding_task("You are good at building frontends", "Design a react app which can be used to order food for a restaurant"))
+    #print(process_query_to_json("List the agents which build the front end and status active"))
+    #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
+    print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))

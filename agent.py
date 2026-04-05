@@ -1,5 +1,5 @@
 from langgraph.graph import StateGraph,START,END
-from langchain_core.messages import BaseMessage,SystemMessage,HumanMessage
+from langchain_core.messages import BaseMessage,SystemMessage,HumanMessage,AIMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
@@ -7,14 +7,22 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Annotated,Sequence,TypedDict
 from dotenv import load_dotenv
 from mongodb import DBOps
-from gemini import process_query_to_json,give_info_for_coding_task,format_python_code
+from gemini import process_query_to_json,give_info_for_coding_task,format_python_code,generate_skills,generate_tasks
 import os
 from code_gen import install_packages,ModifyCode
 from pathlib import Path
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
+from cli import CLI
+from pathlib import Path
+from google import genai
+from agent_viewer import main
+from gemini import combine_tool_and_model_res
 load_dotenv()
-db = DBOps()    
+client = genai.Client()
+db = DBOps() 
+tool_info = ''
+memory_context = '' 
 class AgentState(TypedDict):
     messages:Annotated[Sequence[BaseMessage],add_messages]
 
@@ -44,6 +52,7 @@ def create_agent(name:str,action:str):
 def view_agent(query:str):
     """
     This tool is used to view all the agents created by the user.
+    DO NOT USE THIS TOOL IN THE USER WANTS TO CHANGE THE DESCRIPTION, NAME OR DELETE THE AGENT.
     ARGS: query
     """
     #res = db.find_all_documents(query)
@@ -58,11 +67,22 @@ def view_agent(query:str):
             print("----------------")
     return f"Agents were shown"
 @tool
-def modify_agent(name:str,task:str):
+def modify_agent():
     """
-    This tool is used to modify an agent(edit and delete)
-    ARGS: name,task
+    Opens a dialog box for managing sub-agents. Use this tool when the user wants to:
+    - View existing agents
+    - Rename an agent
+    - Change an agent's description
+    - Delete an agent
+
+    Use this tool regardless of whether the user specifies which agent to modify or not.
+    DO NOT use any other tool for these operations.
     """
+    print("A dialogue box will pop up, please select the agent you want to modify there")
+    main()
+    print("Test")
+    global tool_info
+    tool_info = "Interface will pop up.\n"
     return "Interface will pop up"
 
 @tool
@@ -74,104 +94,66 @@ def assign_task_to_agent(name:str,task:str):
     res = db.find_documents({'name':name})
     if res:
         db.update_document({'name':name},{'$set':{'status':'active'}})
-        for r in res:
-            print("System Prompt: ",r['action'])
-            print("User's request: ",task)
-
-        info = give_info_for_coding_task(r['action'],task)
+        r = res[0]
+        print("System Prompt: ",r['action'])
+        print("User's request: ",task)
+        print("Agent name: ",name)
+        #info = give_info_for_coding_task(r['action'],task)
         folder_name = name
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
-        if info['language'] == "javascript":
-            #print("Came till here")
-            if install_packages(info['packages'],"javascript",folder_name):
-                if 'react' in info['main_frameword_used'] or 'React' in info['main_frameword_used']:
-
-                    for file in info['files']:
-                        with open(f"{folder_name}/{file['file_name'].replace('.js','.jsx')}","w") as f:
-                            f.write(file['code'])
-
-                    
-                        os.system(f"cd {folder_name} && npm install vite @vitejs/plugin-react -D")
-                        with open(f"{folder_name}/vite.config.js","a") as f:
-                            
-                            f.write("""import { defineConfig } from 'vite';
-                                    import react from '@vitejs/plugin-react';
-
-                                    // https://vitejs.dev/config/
-                                    export default defineConfig({
-                                    plugins: [react()],
-                                    server: {
-                                        port: 3000, // Optional: sets the port to 3000
-                                    },
-                                    });
-                                    """)
-
-                        with open(f"{folder_name}/package.json","a") as f:
-                            f.write("""{
-                                    "scripts": {
-                                        "dev": "vite",
-                                        "build": "vite build",
-                                        "preview": "vite preview"
-                                    }
-                                    }""")
-                        with open(f"{folder_name}/index.html","w") as f:
-                            f.write(f"""<!doctype html>
-                                    <html lang="en">
-                                    <head>
-                                        <meta charset="UTF-8" />
-                                        <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-                                        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                                        <title>{folder_name}</title>
-                                    </head>
-                                    <body>
-                                        <div id="root"></div>
-                                        <script type="module" src="/src/{info['file_to_be_executed']}"></script>
-                                    </body>
-                                    </html>
-                                    """)
-                  
-                 
-
-                else:
-
-                    for file in info['files']:
-                        with open(f"{folder_name}/{file['file_name']}","w") as f:
-                            f.write(file['code'])
-                return "Agent has completed it's task"   
-
-            else:
-                return "Packages not installed"
-        
-        elif info['language'] == "python":
-            if install_packages(info['packages'],"python",folder_name):
-                for file in info['files']:
-                    with open(f"{folder_name}/{file['file_name']}","w") as f:
-                        try:
-                            path = Path(file['file_name'])
-                            if not os.path.exists(path.parent):
-                                os.makedirs(path.parent)
-                            if file['file_name'].endswith('.py'):
-                                f.write(format_python_code(file['code'],info['language'])['formatted_code'])
-                            else:
-                                f.write(file['code'])
-                        except Exception as e:
-                            print(e)
-                            return "An error occurred while creating the files"
-                return "Agent has completed it's task"   
-            else:
-                return "Packages not installed"
-        
-        else:
-            for file in info['files']:
-                with open(f'{folder_name}/{file["file_name"]}','w') as f:
-                    path = Path(file['file_name'])
-                    if not os.path.exists(path.parent):
-                        os.makedirs(path.parent)
-                    f.write(format_python_code(file['code'],info['language'])['formatted_code'])
+        # Search for the best skill to solve the user's task
+        skills = []
+        for skill in os.listdir("skills"):
+            if skill.endswith(".md") and skill!="skill_template.md":
+                skills.append(skill)
+        print('came till here')
+        print(skills)
+        print("Going into res")
+        res = client.models.generate_content(
+            model="gemma-4-26b-a4b-it",
+            contents=f"""
+            You are given a list of skills: {skills}
+            You are also given a task: {task}
+            Your task is to choose the best skill to solve the user's task
+            Return the name of the skill
+            """,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": {
+                    "type": "object",
+                    "properties": {
+                        "skill": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["skill"]
+                }
+            }
+        )
+        skill = eval(res.text)['skill']
+        print("skill used",skill)
+        # Utilize the chosen skill to generate the code
+        res = generate_tasks(f"skills/{skill}",task)
+        commands = res['commands']
+        print("Installing packages")
+        for command in commands:
+            cli = CLI(command)
+            cli.run_command()
+        files_to_modify = res['files_to_be_created']
+        print("Creating files and writing code")
+        for file in files_to_modify:
+            path = Path(folder_name)
+            path.mkdir(parents=True, exist_ok=True)
+            with open(folder_name+'/'+file['file_name'],'w') as f:
+                f.write(file['content'])
     else:
-        print("Agent not found")
-        return "Agent not found"
+        return "Task not assigned to agent because agent wasn't found"
+    db.update_document({'name':name},{'$set':{'status':'inactive'}})
+    global tool_info
+    tool_info = "Task assigned to agent"
+    return "Task assigned to agent"
+            
 @tool
 def modify_code_tool(name:str,instruction:str):
     """
@@ -218,16 +200,19 @@ def gen_skills(topic:str):
     This tool is used to generate skills for the agent
     ARGS: topic
     """
-    
-tools = [create_agent,view_agent,assign_task_to_agent,modify_code_tool,debug_code]
+    res = generate_skills(topic)
+    return res
+tools = [create_agent,modify_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
 
-llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview').bind_tools(tools)
+llm = ChatGoogleGenerativeAI(model='gemma-4-26b-a4b-it').bind_tools(tools)
 
 
 def agent(state:AgentState):
-
-    instruction = SystemMessage(content="You are a helpful assistant, answer to your best ability")
+    global memory_context
+    memory_note = f"\n\nThe following are key facts you remember about the user from previous turns:\n{memory_context}" if memory_context else ""
+    instruction = SystemMessage(content=f"You are a helpful assistant, answer to your best ability. When a tool returns a message, relay that exact message to the user as your final response. Do not add any additional information.{memory_note}")
     res = llm.invoke([instruction]+state['messages'])
+    
     return {'messages':[res]}
 graph.add_node('agent',agent)
 tool_node = ToolNode(tools=tools)
@@ -251,6 +236,19 @@ conversational_history = []
 while user_inp!='exit':
     conversational_history.append(HumanMessage(content=user_inp))
     res = app.invoke({"messages":conversational_history})
-    conversational_history = res['messages']
-    print(res['messages'][1].content[0]['text'])
+    #conversational_history = res['messages']
+    #print(res)
+    model_response = ''
+    try:
+        if(res['messages'][1].content[1]['text']):
+            model_response = res['messages'][1].content[1]['text']
+    except:
+        pass
+    final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
+    if memory:
+        memory_context += memory + '\n'
+    print(memory_context)
+    conversational_history.append(AIMessage(content=model_response))
+    tool_info = ''
+    print("AI: ",final_res)
     user_inp = input("Enter something: ")

@@ -323,6 +323,31 @@ def combine_tool_and_model_res(model_res, tool_res, user_ques,memory_context):
     parsed = eval(res.text)
     return parsed['combined_response'], parsed['memory']
 
+def perform_verification(code,language='python'):
+    res = client.models.generate_content(
+        model='gemma-4-26b-a4b-it',
+        contents=f"""
+        You are given with a code in {language}.
+        Review the code and fix any errors in the code.
+        Code: {code}
+
+        Also list out the additional tasks required if any to complete the user's instruction.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "modified_code": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["modified_code"]
+            }
+        )
+    )
+    return res.text
+
 if __name__ == "__main__":
     #code = open("backend-dev/app.py","r").read()
     #print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
@@ -332,4 +357,5 @@ if __name__ == "__main__":
     #print(give_info_for_coding_task("You are good at building frontends", "Design a react app which can be used to order food for a restaurant"))
     #print(process_query_to_json("List the agents which build the front end and status active"))
     #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
-    print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
+    #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
+    print(perform_verification(open("flask-backend/app.py","r").read()))

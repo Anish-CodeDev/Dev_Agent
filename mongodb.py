@@ -33,6 +33,13 @@ class DBOps:
         except Exception as e:
             return str(e)
     
+    def delete_document(self,query):
+        try:
+            res = self.collection.delete_one(query)
+            return res
+        except Exception as e:
+            return str(e)
+
     def check_if_agent_exists(self,name):
         try:
             res = self.collection.find_one({'name':name})
@@ -41,3 +48,8 @@ class DBOps:
             return False
         except Exception as e:
             return str(e)
+
+if __name__ == "__main__":
+    db = DBOps()
+    res = list(db.find_documents({'name':'flask-backend'}))
+    print(res[0]['apps'])

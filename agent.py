@@ -17,7 +17,8 @@ from cli import CLI
 from pathlib import Path
 from google import genai
 from agent_viewer import main
-from gemini import combine_tool_and_model_res
+from gemini import combine_tool_and_model_res,perform_verification
+import subprocess
 load_dotenv()
 client = genai.Client()
 db = DBOps() 
@@ -41,11 +42,14 @@ def create_agent(name:str,action:str):
     This tool is used to create an agent
     ARGS: name,action
     """
+    global tool_info
     if db.check_if_agent_exists(name):
+        tool_info = f"Agent '{name}' already exists. No new agent was created."
         return f"Agent {name} already exists"
     else:
         res = db.insert_document({'name':name,'action':action,'status':'inactive'})
         print(res)
+        tool_info = f"Agent '{name}' was successfully created with the task: {action}"
         return f"Agent {name} created with action {action}" 
 
 @tool
@@ -55,16 +59,19 @@ def view_agent(query:str):
     DO NOT USE THIS TOOL IN THE USER WANTS TO CHANGE THE DESCRIPTION, NAME OR DELETE THE AGENT.
     ARGS: query
     """
-    #res = db.find_all_documents(query)
-    #print(res)
+    global tool_info
     query = process_query_to_json(query)
     res = db.find_documents(query)
-    if res:
-        for r in res:
+    agent_list = list(res)
+    if agent_list:
+        for r in agent_list:
             print("Name: ",r['name'])
             print("Action: ",r['action'])
             print("Status: ",r['status'])
             print("----------------")
+        tool_info = f"Found {len(agent_list)} agent(s) matching your query."
+    else:
+        tool_info = "No agents were found matching your query."
     return f"Agents were shown"
 @tool
 def modify_agent():
@@ -79,10 +86,10 @@ def modify_agent():
     DO NOT use any other tool for these operations.
     """
     print("A dialogue box will pop up, please select the agent you want to modify there")
-    main()
+    subprocess.run(["venv\Scripts\python.exe", "agent_viewer.py"])
     print("Test")
     global tool_info
-    tool_info = "Interface will pop up.\n"
+    tool_info = "Thank you for using the agent viewer.\n"
     return "Interface will pop up"
 
 @tool
@@ -91,6 +98,7 @@ def assign_task_to_agent(name:str,task:str):
     This tool is used to assign a task to an agent
     ARGS: name,task
     """
+    global tool_info
     res = db.find_documents({'name':name})
     if res:
         db.update_document({'name':name},{'$set':{'status':'active'}})
@@ -99,7 +107,28 @@ def assign_task_to_agent(name:str,task:str):
         print("User's request: ",task)
         print("Agent name: ",name)
         #info = give_info_for_coding_task(r['action'],task)
-        folder_name = name
+        res = client.models.generate_content(
+            model="gemma-4-26b-a4b-it",
+            contents=f"""
+            You are given a task: {task}
+            Your task is to generate a name for the app
+            Return the name of the app
+            """,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": {
+                    "type": "object",
+                    "properties": {
+                        "app_name": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["app_name"]
+                }
+            }
+        )
+        app_name = eval(res.text)['app_name']
+        folder_name = f'apps/{app_name}'
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
         # Search for the best skill to solve the user's task
@@ -142,24 +171,38 @@ def assign_task_to_agent(name:str,task:str):
             cli.run_command()
         files_to_modify = res['files_to_be_created']
         print("Creating files and writing code")
+        path = Path(folder_name)
+        path.mkdir(parents=True, exist_ok=True)
         for file in files_to_modify:
-            path = Path(folder_name)
-            path.mkdir(parents=True, exist_ok=True)
-            with open(folder_name+'/'+file['file_name'],'w') as f:
-                f.write(file['content'])
+            if not os.path.exists(folder_name+'/'+file['file_name']):
+                with open(folder_name+'/'+file['file_name'],'w') as f:
+                    f.write(file['content'])
+            else:
+                os.remove(folder_name+'/'+file['file_name'])
+                with open(folder_name+'/'+file['file_name'],'w') as f:
+                    f.write(file['content'])
     else:
+        tool_info = "Task not assigned to agent because agent wasn't found"
         return "Task not assigned to agent because agent wasn't found"
-    db.update_document({'name':name},{'$set':{'status':'inactive'}})
-    global tool_info
+    apps = []
+    res = db.find_documents({'name':name})
+    for r in res:
+        try:
+            apps.append(r['apps'])
+        except KeyError:
+            apps = []
+    apps.append(app_name)
+    db.update_document({'name':name},{'$set':{'status':'inactive','apps':apps}})
     tool_info = "Task assigned to agent"
     return "Task assigned to agent"
             
 @tool
-def modify_code_tool(name:str,instruction:str):
+def modify_code_tool(name:str,app_name:str,instruction:str):
     """
     This tool is used to modify the code
-    ARGS: name,instruction
+    ARGS: name,app_name,instruction
     """
+    global tool_info
     res = db.find_documents({'name':name})
     if res:
         db.update_document({'name':name},{'$set':{'status':'active'}})
@@ -167,17 +210,23 @@ def modify_code_tool(name:str,instruction:str):
             system_prompt = r['action']
     
     system_prompt += instruction
-    obj = ModifyCodeFuncs(system_prompt,name)
+    obj = ModifyCodeFuncs(system_prompt,'apps/'+app_name)
     res = obj.generate_final_tasks()
     
     for r in res:
-        with open(r['filename'],'r') as f:
+        with open('apps/'+app_name+'/'+r['filename'],'r') as f:
             code = f.read()
         modify_obj = ModifyCode('python',r['task'])
         code = modify_obj.modify_code_gen(code)
-        with open(r['filename'],'w') as f:
-            f.write(code)    
+        print("Press Y if the code update is fine: ")
+        print(code)
+        if input()=='Y':
+            with open('apps/'+app_name+'/'+r['filename'],'w') as f:
+                f.write(code)    
+        else:
+            print("Code not updated as per your wish")
     db.update_document({'name':name},{'$set':{'status':'inactive'}})
+    tool_info = f"Code modification for agent '{name}' completed: {instruction}"
     return f"Your {instruction} was to modify the code base has been completed"
 
 @tool
@@ -187,12 +236,14 @@ def debug_code(name:str,error:str):
 
     ARGS: name, error
     """
+    global tool_info
     res = db.find_documents({"name":name})
     if res:
         db.update_document({'name':name},{'$set':{'status':'active'}})
     obj = Debug(error)
     res = obj.suggest_changes(obj.extract_file())
     db.update_document({'name':name},{'$set':{'status':'inactive'}})
+    tool_info = f"Debugging for agent '{name}' is complete. The suggested fixes have been applied."
     return "The changes were updated as per your wish"
 @tool
 def gen_skills(topic:str):
@@ -200,7 +251,9 @@ def gen_skills(topic:str):
     This tool is used to generate skills for the agent
     ARGS: topic
     """
+    global tool_info
     res = generate_skills(topic)
+    tool_info = f"Skills for the topic '{topic}' have been successfully generated."
     return res
 tools = [create_agent,modify_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
 
@@ -247,7 +300,6 @@ while user_inp!='exit':
     final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
     if memory:
         memory_context += memory + '\n'
-    print(memory_context)
     conversational_history.append(AIMessage(content=model_response))
     tool_info = ''
     print("AI: ",final_res)

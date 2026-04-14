@@ -8,6 +8,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from modify_description import open_dialog
 from mongodb import DBOps
+from delete_dialog import open_delete_dialog
+import shutil
 db = DBOps()
 SAMPLE_AGENTS = []
 STATUS_COLORS = {
@@ -156,7 +158,7 @@ class AgentViewer(QMainWindow):
         header.setSectionResizeMode(2, QHeaderView.Fixed)
         self.table.setColumnWidth(2, 160)
         header.setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table.setColumnWidth(3, 130)
+        self.table.setColumnWidth(3, 220)
 
         self._populate_table(SAMPLE_AGENTS)
         layout.addWidget(self.table)
@@ -242,14 +244,55 @@ class AgentViewer(QMainWindow):
                         SAMPLE_AGENTS.append({"name": agent["name"], "task": agent["action"], "status": agent["status"]})
                     self.table.setRowCount(0)
                     self._populate_table(SAMPLE_AGENTS)
-                
+
             modify_btn.clicked.connect(lambda checked, a=agent: on_modify_click(a))
+
+            # Delete button
+            delete_btn = QPushButton("Delete")
+            delete_btn.setFixedHeight(34)
+            delete_btn.setMinimumWidth(90)
+            delete_btn.setCursor(Qt.PointingHandCursor)
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #7f1d1d;
+                    color: #fca5a5;
+                    border: 1px solid #dc2626;
+                    border-radius: 17px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 0 16px;
+                }
+                QPushButton:hover {
+                    background-color: #dc2626;
+                    color: #ffffff;
+                    border-color: #f87171;
+                }
+                QPushButton:pressed {
+                    background-color: #b91c1c;
+                }
+            """)
+            def on_delete_click(agent):
+                if(open_delete_dialog(agent["name"])):
+                    refreshed = db.find_documents({})
+                    updated_agents = [
+                        {"name": a["name"], "task": a["action"], "status": a["status"]}
+                        for a in refreshed
+                    ]
+                    self.table.setRowCount(0)
+                    self._populate_table(updated_agents)
+                    shutil.rmtree(f"{agent['name']}")
+                else:
+                    print("Cancelled")
+
+            delete_btn.clicked.connect(lambda checked, a=agent: on_delete_click(a))
 
             btn_container = QWidget()
             btn_layout = QHBoxLayout(btn_container)
-            btn_layout.setContentsMargins(10, 8, 10, 8)
+            btn_layout.setContentsMargins(8, 8, 8, 8)
+            btn_layout.setSpacing(16)
             btn_layout.addStretch()
             btn_layout.addWidget(modify_btn)
+            btn_layout.addWidget(delete_btn)
             btn_layout.addStretch()
             self.table.setCellWidget(row, 3, btn_container)
 
@@ -279,7 +322,7 @@ def main():
     app.setStyle("Fusion")
     window = AgentViewer()
     window.show()
-    app.exec()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

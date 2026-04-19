@@ -348,6 +348,63 @@ def perform_verification(code,language='python'):
     )
     return res.text
 
+def generate_steps_prompt(message, agents):
+    """
+    Generate a list of steps to complete a task, assigning each step to the most suitable agent.
+
+    Args:
+        message: The task/message to break into steps.
+        agents: A list of dicts, each with 'name' and 'description' keys.
+                e.g. [{'name': 'flask-backend', 'description': 'Builds Flask servers'}, ...]
+    """
+    # Build a readable summary of available agents for the prompt
+    agent_summary = "\n".join(
+        f"- Agent Name: \"{a['name']}\", Description: \"{a['action']}\""
+        for a in agents
+    )
+
+    res = client.models.generate_content(
+        model='gemma-4-26b-a4b-it',
+        contents=f"""
+        You are given a task and a list of available agents with their names and descriptions.
+        Your job is to break the task into a list of actionable steps to complete it.
+        For each step, you MUST assign it to the most suitable agent based on the agent's name and description.
+        Only use agents from the provided list.
+        Each step_description MUST include the agent name within it, describing both what to do and which agent handles it.
+        For example: "Use the flask-backend agent to set up the REST API endpoints for menu items and orders."
+
+        Task: {message}
+        Also give a suitable name for the final app
+        Available Agents:
+        {agent_summary}
+        Stick to the same names as mentioned in the available agents list, don't make even a small change in the names.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "app_name": {
+                        "type": "STRING"
+                    },
+                    "steps": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "step_description": {
+                                    "type": "STRING"
+                                }
+                            },
+                            "required": ["step_description"]
+                        }
+                    }
+                },
+                "required": ["app_name", "steps"]
+            }
+        )
+    )
+    return eval(res.text)
 if __name__ == "__main__":
     #code = open("backend-dev/app.py","r").read()
     #print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
@@ -358,4 +415,5 @@ if __name__ == "__main__":
     #print(process_query_to_json("List the agents which build the front end and status active"))
     #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
     #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
-    print(perform_verification(open("flask-backend/app.py","r").read()))
+    #print(perform_verification(open("flask-backend/app.py","r").read()))
+    print(generate_steps_prompt("Develop a react app which can be used to order food for a restaurant", [{"name": "flask-backend", "action": "Builds Flask servers"}, {"name": "react-frontend", "action": "Builds React frontends"}]))

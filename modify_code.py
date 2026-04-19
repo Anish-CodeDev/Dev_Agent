@@ -9,7 +9,7 @@ gemini = Client()
 class ModifyCodeFuncs:
     def __init__(self,instruction,folder_name):
         self.instruction = instruction
-        self.model = "gemini-3-flash-preview"
+        self.model = "gemma-4-26b-a4b-it"
         self.folder_name = folder_name
     def generate_summary_for_code(self,filename:str):
         with open(filename,"r") as f:
@@ -39,19 +39,43 @@ class ModifyCodeFuncs:
         return res.text
     def compile_descriptions_of_all_files(self):
         res = []
-        rest = RestApi("http://localhost:5000/")
         for filename in os.listdir(self.folder_name):
             if not filename.endswith('.py'):
                 continue
             if filename == '.git' or filename == 'agent.py':
                 continue
-            with open(os.path.join(self.folder_name,filename),"r") as f:
+            with open(os.path.join(self.folder_name, filename), "r") as f:
                 code = f.read()
-            if filename.endswith(".py"):
-                if(rest.post({"Question":code,"filename":filename,"task":self.instruction})['res'] == "yes"):
-                    print(filename)
-                    res.append({"filename":filename,"summary":eval(self.generate_summary_for_code(os.path.join(self.folder_name,filename)))["summary"]})
-                    print(res)
+            # Use Gemma model to determine if the file is relevant to the instruction
+            relevance_res = gemini.models.generate_content(
+                model=self.model,
+                contents=f"""
+                You are a code analysis tool.
+                Given the following code from file "{filename}" and the user's task: "{self.instruction}",
+                determine whether this file is relevant to the task and would need to be modified.
+                
+                Code:
+                {code}
+                """,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "object",
+                        "properties": {
+                            "is_relevant": {
+                                "type": "string",
+                                "description": "yes if the file is relevant to the task, no otherwise"
+                            }
+                        },
+                        "required": ["is_relevant"]
+                    }
+                )
+            )
+            relevance = eval(relevance_res.text)
+            if relevance.get("is_relevant", "no").lower() == "yes":
+                print(filename)
+                res.append({"filename": filename, "summary": eval(self.generate_summary_for_code(os.path.join(self.folder_name, filename)))["summary"]})
+                print(res)
         return res
     def generate_task_for_each_file_based_on_summary(self,summary:str):
         res = gemini.models.generate_content(
@@ -79,7 +103,7 @@ class ModifyCodeFuncs:
                 }
             )
         )
-        return res.text
+        return eval(res.text)
     def generate_final_tasks(self):
         descriptions = self.compile_descriptions_of_all_files()
         res = []

@@ -19,11 +19,14 @@ from google import genai
 from agent_viewer import main
 from gemini import combine_tool_and_model_res,perform_verification
 import subprocess
+from multi_agent import MultiAgent
 load_dotenv()
 client = genai.Client()
 db = DBOps() 
 tool_info = ''
 memory_context = '' 
+app_name = ''
+in_planning_mode = False
 class AgentState(TypedDict):
     messages:Annotated[Sequence[BaseMessage],add_messages]
 
@@ -127,10 +130,12 @@ def assign_task_to_agent(name:str,task:str):
                 }
             }
         )
-        app_name = eval(res.text)['app_name']
-        folder_name = f'apps/{app_name}'
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
+        global app_name
+        if not in_planning_mode:
+            app_name = eval(res.text)['app_name']
+            folder_name = f'apps/{app_name}'
+        if not os.path.exists(app_name):
+            os.makedirs(app_name)
         # Search for the best skill to solve the user's task
         skills = []
         for skill in os.listdir("skills"):
@@ -282,25 +287,58 @@ graph.add_conditional_edges(
     })
 graph.add_edge('tool_node','agent')
 app = graph.compile()
+mode = input("Enter a mode: P-> plan and I-> Individual Agent")
 
-user_inp = input("Enter something: ")
-conversational_history = []
+if mode == 'P':
+    user_inp = input("Enter your task: ")
+    while(user_inp !='exit'):
+        in_planning_mode = True
+        conversational_history = []
+        multi_agent = MultiAgent(user_inp)
+        res = multi_agent.generate_steps()
+        app_name = res['app_name']
+        folder_name = f'apps/{app_name}'
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+        for r in res['steps']:
+            print(r['step_description'])
+            conversational_history.append(HumanMessage(content=r['step_description']))
+            res = app.invoke({"messages":conversational_history})
+            conversational_history = res['messages']
+            model_response = ''
+            try:
+                if(res['messages'][1].content[1]['text']):
+                    model_response = res['messages'][1].content[1]['text']
+            except:
+                pass
+            final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
+            if memory:
+                memory_context += memory + '\n'
+            conversational_history.append(AIMessage(content=model_response))
+            tool_info = ''
+            print("AI: ",final_res)
+        user_inp = input("Enter your task: ")
+        
+else:
 
-while user_inp!='exit':
-    conversational_history.append(HumanMessage(content=user_inp))
-    res = app.invoke({"messages":conversational_history})
-    #conversational_history = res['messages']
-    #print(res)
-    model_response = ''
-    try:
-        if(res['messages'][1].content[1]['text']):
-            model_response = res['messages'][1].content[1]['text']
-    except:
-        pass
-    final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
-    if memory:
-        memory_context += memory + '\n'
-    conversational_history.append(AIMessage(content=model_response))
-    tool_info = ''
-    print("AI: ",final_res)
     user_inp = input("Enter something: ")
+    conversational_history = []
+
+    while user_inp!='exit':
+        conversational_history.append(HumanMessage(content=user_inp))
+        res = app.invoke({"messages":conversational_history})
+        #conversational_history = res['messages']
+        #print(res)
+        model_response = ''
+        try:
+            if(res['messages'][1].content[1]['text']):
+                model_response = res['messages'][1].content[1]['text']
+        except:
+            pass
+        final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
+        if memory:
+            memory_context += memory + '\n'
+        conversational_history.append(AIMessage(content=model_response))
+        tool_info = ''
+        print("AI: ",final_res)
+        user_inp = input("Enter something: ")

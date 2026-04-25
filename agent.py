@@ -287,7 +287,7 @@ graph.add_conditional_edges(
     })
 graph.add_edge('tool_node','agent')
 app = graph.compile()
-mode = input("Enter a mode: P-> plan and I-> Individual Agent")
+mode = input("Enter a mode: P-> plan and I-> Individual Agent: ")
 
 if mode == 'P':
     user_inp = input("Enter your task: ")
@@ -295,11 +295,51 @@ if mode == 'P':
         in_planning_mode = True
         conversational_history = []
         multi_agent = MultiAgent(user_inp)
+        basic_steps = multi_agent.setup()
         res = multi_agent.generate_steps()
         app_name = res['app_name']
         folder_name = f'apps/{app_name}'
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
+        if basic_steps:
+
+            for r in basic_steps['agents_to_create']:
+                step_description = f"I want you to create an agent named {r['name']} for the following task: {user_inp}. Here is what it should be doing: {r['description']}"
+                print(step_description)
+                conversational_history.append(HumanMessage(content=step_description))
+                res = app.invoke({"messages":conversational_history})
+                conversational_history = res['messages']
+                model_response = ''
+                try:
+                    if(res['messages'][1].content[1]['text']):
+                        model_response = res['messages'][1].content[1]['text']
+                except:
+                    pass
+                final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
+                if memory:
+                    memory_context += memory + '\n'
+                conversational_history.append(AIMessage(content=model_response))
+                tool_info = ''
+                print("AI: ",final_res)
+            print("Creating Skills...")
+            for r in basic_steps['skills_to_create']:
+                step_description = f"I want you to create a skill named {r} for the following task: {user_inp}."
+                print(step_description)
+                conversational_history.append(HumanMessage(content=step_description))
+                res = app.invoke({"messages":conversational_history})
+                conversational_history = res['messages']
+                model_response = ''
+                try:
+                    if(res['messages'][1].content[1]['text']):
+                        model_response = res['messages'][1].content[1]['text']
+                except:
+                    pass
+                final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
+                if memory:
+                    memory_context += memory + '\n'
+                conversational_history.append(AIMessage(content=model_response))
+                tool_info = ''
+                print("AI: ",final_res)
         for r in res['steps']:
             print(r['step_description'])
             conversational_history.append(HumanMessage(content=r['step_description']))

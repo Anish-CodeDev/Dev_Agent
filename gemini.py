@@ -348,6 +348,94 @@ def perform_verification(code,language='python'):
     )
     return res.text
 
+def check_sufficiency(task: str, agents: list, skills: list):
+    """
+    Check whether the available agents and skills are sufficient to complete the task.
+
+    Args:
+        task:    The task/message to be completed.
+        agents:  A list of agent dicts, each with 'name' and 'action' keys.
+                 e.g. [{'name': 'flask-backend', 'action': 'Builds Flask servers'}, ...]
+        skills:  A list of skill filenames available in the skills/ directory.
+                 e.g. ['developing_flask_servers_skill.md', 'react.md']
+
+    Returns:
+        None  — if the existing agents and skills are sufficient.
+        dict  — with keys 'agents_to_create' (list of {name, description} dicts)
+                and 'skills_to_create' (list of strings) when gaps are detected.
+                e.g. {
+                    'agents_to_create': [{'name': 'css-designer', 'description': 'Builds styled pages using vanilla CSS'}],
+                    'skills_to_create': ['CSS Styling']
+                }
+    """
+    agent_summary = "\n".join(
+        f"  - Agent Name: \"{a['name']}\", Description: \"{a['action']}\""
+        for a in agents
+    ) or "  (none)"
+
+    skill_summary = "\n".join(f"  - {s}" for s in skills) or "  (none)"
+
+    res = client.models.generate_content(
+        model='gemma-4-26b-a4b-it',
+        contents=f"""
+        You are a planning assistant for a multi-agent coding system.
+
+        Task: {task}
+
+        Available Agents:
+{agent_summary}
+
+        Available Skills (skill files):
+{skill_summary}
+
+        Your job:
+        1. Determine if the agents and skills above are sufficient to fully complete the task.
+        2. If they ARE sufficient, set 'sufficient' to true and leave both lists empty.
+        3. If they are NOT sufficient, set 'sufficient' to false and populate:
+           - 'agents_to_create': a list of objects, each with:
+               * 'name': a short kebab-case agent name (e.g. 'css-designer')
+               * 'description': a concise description of what this agent does (e.g. 'Builds styled web pages using vanilla CSS and HTML')
+           - 'skills_to_create': a list of skill topics (human-readable) that must be generated.
+        Only add what is genuinely missing — do not duplicate existing agents or skills.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "sufficient": {
+                        "type": "INTEGER"
+                    },
+                    "agents_to_create": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "name": {"type": "STRING"},
+                                "description": {"type": "STRING"}
+                            },
+                            "required": ["name", "description"]
+                        }
+                    },
+                    "skills_to_create": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"}
+                    }
+                },
+                "required": ["sufficient", "agents_to_create", "skills_to_create"]
+            }
+        )
+    )
+
+    parsed = eval(res.text)
+    if parsed.get("sufficient"):
+        return None
+    return {
+        "agents_to_create": parsed.get("agents_to_create", []),
+        "skills_to_create": parsed.get("skills_to_create", [])
+    }
+
+
 def generate_steps_prompt(message, agents):
     """
     Generate a list of steps to complete a task, assigning each step to the most suitable agent.

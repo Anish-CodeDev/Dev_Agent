@@ -20,6 +20,7 @@ from agent_viewer import main
 from gemini import combine_tool_and_model_res,perform_verification
 import subprocess
 from multi_agent import MultiAgent
+from rest import RestApi
 load_dotenv()
 client = genai.Client()
 db = DBOps() 
@@ -27,6 +28,18 @@ tool_info = ''
 memory_context = '' 
 app_name = ''
 in_planning_mode = False
+
+def create_rest_obj(url):
+    return RestApi(url)
+
+def file_create_with_content(task,skill):
+    res = generate_tasks(skill,task)
+    files = []
+    content = []
+    for file in res['files_to_be_created']:
+        content.append(file['content'])
+        files.append(file['file_name'])
+    return files,content
 class AgentState(TypedDict):
     messages:Annotated[Sequence[BaseMessage],add_messages]
 
@@ -171,21 +184,21 @@ def assign_task_to_agent(name:str,task:str):
         res = generate_tasks(f"skills/{skill}",task)
         commands = res['commands']
         print("Installing packages")
-        for command in commands:
-            cli = CLI(command)
-            cli.run_command()
-        files_to_modify = res['files_to_be_created']
+        obj = create_rest_obj("http://localhost:5000/commands")
+        data = {
+            "commands":commands
+        }
+        obj.post(data)
         print("Creating files and writing code")
-        path = Path(folder_name)
-        path.mkdir(parents=True, exist_ok=True)
-        for file in files_to_modify:
-            if not os.path.exists(folder_name+'/'+file['file_name']):
-                with open(folder_name+'/'+file['file_name'],'w') as f:
-                    f.write(file['content'])
-            else:
-                os.remove(folder_name+'/'+file['file_name'])
-                with open(folder_name+'/'+file['file_name'],'w') as f:
-                    f.write(file['content'])
+        files,contents = file_create_with_content(task,f"skills/{skill}")
+        obj = create_rest_obj("http://localhost:5000/")
+        data = {
+            "files":files,
+            "contents":contents,
+            "app_name":"test"
+        }
+        res = obj.post(data)
+        print(res)
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
         return "Task not assigned to agent because agent wasn't found"
@@ -323,7 +336,7 @@ if mode == 'P':
                 print("AI: ",final_res)
             print("Creating Skills...")
             for r in basic_steps['skills_to_create']:
-                step_description = f"I want you to create a skill named {r} for the following task: {user_inp}."
+                step_description = f"I want you to create a skill which does the following: {r}"
                 print(step_description)
                 conversational_history.append(HumanMessage(content=step_description))
                 res = app.invoke({"messages":conversational_history})

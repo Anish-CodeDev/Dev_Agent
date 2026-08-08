@@ -395,7 +395,7 @@ def check_sufficiency(task: str, agents: list, skills: list):
            - 'agents_to_create': a list of objects, each with:
                * 'name': a short kebab-case agent name (e.g. 'css-designer')
                * 'description': a concise description of what this agent does (e.g. 'Builds styled web pages using vanilla CSS and HTML')
-           - 'skills_to_create': a list of skill topics (human-readable) that must be generated.
+           - 'skills_to_create': a list of detailed descriptions of the skills that must be generated, explaining exactly what each skill should entail and accomplish.
         Only add what is genuinely missing — do not duplicate existing agents or skills.
         """,
         config=types.GenerateContentConfig(
@@ -419,7 +419,7 @@ def check_sufficiency(task: str, agents: list, skills: list):
                     },
                     "skills_to_create": {
                         "type": "ARRAY",
-                        "items": {"type": "STRING"}
+                        "items": {"type": "STRING", "description": "Detailed description of the skill to be created"}
                     }
                 },
                 "required": ["sufficient", "agents_to_create", "skills_to_create"]

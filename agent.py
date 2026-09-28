@@ -21,6 +21,7 @@ from gemini import combine_tool_and_model_res,perform_verification
 import subprocess
 from multi_agent import MultiAgent
 from rest import RestApi
+from context import addContext
 load_dotenv()
 client = genai.Client()
 db = DBOps() 
@@ -39,7 +40,7 @@ def file_create_with_content(task,skill):
     for file in res['files_to_be_created']:
         content.append(file['content'])
         files.append(file['file_name'])
-    return files,content
+    return files,content,res['conclusion']
 class AgentState(TypedDict):
     messages:Annotated[Sequence[BaseMessage],add_messages]
 
@@ -186,19 +187,23 @@ def assign_task_to_agent(name:str,task:str):
         print("Installing packages")
         obj = create_rest_obj("http://localhost:5000/commands")
         data = {
-            "commands":commands
+            "commands":commands,
+            "app_name":app_name
         }
-        obj.post(data)
+        response = obj.post(data)
+        if(response['status'] == "Failed"):
+            return "Couldn't install dependencies"
         print("Creating files and writing code")
-        files,contents = file_create_with_content(task,f"skills/{skill}")
+        files,contents,conclusion = file_create_with_content(task,f"skills/{skill}")
         obj = create_rest_obj("http://localhost:5000/")
         data = {
             "files":files,
             "contents":contents,
-            "app_name":"test"
+            "app_name":app_name
         }
         res = obj.post(data)
         print(res)
+        addContext(app_name,conclusion)
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
         return "Task not assigned to agent because agent wasn't found"
@@ -211,8 +216,8 @@ def assign_task_to_agent(name:str,task:str):
             apps = []
     apps.append(app_name)
     db.update_document({'name':name},{'$set':{'status':'inactive','apps':apps}})
-    tool_info = "Task assigned to agent"
-    return "Task assigned to agent"
+    tool_info = "Task assigned to agent which does the following: " + conclusion
+    return f"Task assigned to agent which does the following: {conclusion}"
             
 @tool
 def modify_code_tool(name:str,app_name:str,instruction:str):
@@ -312,8 +317,6 @@ if mode == 'P':
         res = multi_agent.generate_steps()
         app_name = res['app_name']
         folder_name = f'apps/{app_name}'
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
         if basic_steps:
 
             for r in basic_steps['agents_to_create']:
@@ -347,6 +350,7 @@ if mode == 'P':
                         model_response = res['messages'][1].content[1]['text']
                 except:
                     pass
+                print("Came till here...")
                 final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
                 if memory:
                     memory_context += memory + '\n'

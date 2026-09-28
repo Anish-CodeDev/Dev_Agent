@@ -211,8 +211,9 @@ def suggest_modification_to_resolve_error(error, code):
 def generate_skills(topic):
     with open("skills/skill_template.md","r") as f:
         file = f.read()
+    print("Read skill template")
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=[f"""
         You are given with a skill template in the form of a .md file.
         Your job is to generate a skill for the agent for the topic "{topic}" which can be used to complete the task.
@@ -247,6 +248,7 @@ def generate_tasks(skill_file_path: str, task: str):
         You are an expert developer. You are provided with a skill file containing instructions and guidelines, and a specific task to accomplish.
         Your goal is to complete the task by rigorously following the given skill guidelines.
         Determine the necessary terminal commands to run and the files to be created to accomplish this task.
+        Provide a concise conclusion summarizing the planned work. Do not claim that commands were run or files were created.
         """, skill_content, f"Task to complete: {task}"],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -273,9 +275,12 @@ def generate_tasks(skill_file_path: str, task: str):
                             },
                             "required": ["file_name", "content"]
                         }
+                    },
+                    "conclusion": {
+                        "type": "STRING"
                     }
                 },
-                "required": ["commands", "files_to_be_created"]
+                "required": ["commands", "files_to_be_created", "conclusion"]
             }
         )
     )
@@ -494,6 +499,7 @@ def generate_steps_prompt(message, agents):
     )
     return eval(res.text)
 if __name__ == "__main__":
+    generate_skills("Building a http backend with golang")
     #code = open("backend-dev/app.py","r").read()
     #print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
     #code = format_python_code(code)    
@@ -504,4 +510,4 @@ if __name__ == "__main__":
     #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
     #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
     #print(perform_verification(open("flask-backend/app.py","r").read()))
-    print(generate_steps_prompt("Develop a react app which can be used to order food for a restaurant", [{"name": "flask-backend", "action": "Builds Flask servers"}, {"name": "react-frontend", "action": "Builds React frontends"}]))
+    #print(generate_steps_prompt("Develop a react app which can be used to order food for a restaurant", [{"name": "flask-backend", "action": "Builds Flask servers"}, {"name": "react-frontend", "action": "Builds React frontends"}]))

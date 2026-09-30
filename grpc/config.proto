@@ -1,8 +1,8 @@
-syntax = "proto3";
+ExecuteCommandssyntax = "proto3";
 option go_package = "orderservice/common;agentpb";
 
 service ManageAgentOps{
-    rpc ExecuteCommands(ExecuteCommandsRequest) returns (ExecuteCommandsResponse);
+    rpc (ExecuteCommandsRequest) returns (ExecuteCommandsResponse);
     rpc CreateFiles (CreateFileRequest) returns (CreateFileResponse);
     rpc ViewFile (ViewFileRequest) returns (ViewFileResponse);
 }

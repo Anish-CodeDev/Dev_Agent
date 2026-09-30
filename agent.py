@@ -7,21 +7,17 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Annotated,Sequence,TypedDict
 from dotenv import load_dotenv
 from mongodb import DBOps
-from gemini import process_query_to_json,give_info_for_coding_task,format_python_code,generate_skills,generate_tasks
+from gemini import process_query_to_json,generate_skills,generate_tasks
 import os
-from code_gen import install_packages,ModifyCode
-from pathlib import Path
+from code_gen import ModifyCode
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
-from cli import CLI
-from pathlib import Path
 from google import genai
-from agent_viewer import main
-from gemini import combine_tool_and_model_res,perform_verification
+from gemini import combine_tool_and_model_res
 import subprocess
 from multi_agent import MultiAgent
 from rest import RestApi
-from context import addContext
+from context import addContext,getContext
 load_dotenv()
 client = genai.Client()
 db = DBOps() 
@@ -125,7 +121,7 @@ def assign_task_to_agent(name:str,task:str):
         print("Agent name: ",name)
         #info = give_info_for_coding_task(r['action'],task)
         res = client.models.generate_content(
-            model="gemma-4-26b-a4b-it",
+            model="gemini-3.1-flash-lite",
             contents=f"""
             You are given a task: {task}
             Your task is to generate a name for the app
@@ -159,7 +155,7 @@ def assign_task_to_agent(name:str,task:str):
         print(skills)
         print("Going into res")
         res = client.models.generate_content(
-            model="gemma-4-26b-a4b-it",
+            model="gemini-3.1-flash-lite",
             contents=f"""
             You are given a list of skills: {skills}
             You are also given a task: {task}
@@ -190,6 +186,7 @@ def assign_task_to_agent(name:str,task:str):
             "commands":commands,
             "app_name":app_name
         }
+        print(f"*****data: {data}*******")
         response = obj.post(data)
         if(response['status'] == "Failed"):
             return "Couldn't install dependencies"
@@ -280,7 +277,7 @@ def gen_skills(topic:str):
     return res
 tools = [create_agent,modify_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
 
-llm = ChatGoogleGenerativeAI(model='gemma-4-26b-a4b-it').bind_tools(tools)
+llm = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite').bind_tools(tools)
 
 
 def agent(state:AgentState):
@@ -360,6 +357,9 @@ if mode == 'P':
         for r in res['steps']:
             print(r['step_description'])
             conversational_history.append(HumanMessage(content=r['step_description']))
+            if(getContext(app_name)):
+                print("Updated context.json ")
+                conversational_history.append(AIMessage(content=getContext(app_name)))
             res = app.invoke({"messages":conversational_history})
             conversational_history = res['messages']
             model_response = ''

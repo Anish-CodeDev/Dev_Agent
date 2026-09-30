@@ -18,7 +18,7 @@ def process_query_to_json(query: str):
     )
 
     response = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"Query: {query}",
         config=types.GenerateContentConfig(
             system_instruction=sys_instr,
@@ -56,7 +56,7 @@ def process_query_to_json(query: str):
 
 def give_info_for_coding_task(sys_instr:str,query:str):
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are given with a task to complete: {query}
         
@@ -117,7 +117,7 @@ def give_info_for_coding_task(sys_instr:str,query:str):
 
 def format_python_code(code,language):
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=[
             f"""
             You are given with a code in {language}, you have to format the code in a way that it is easy to read and understand.
@@ -144,7 +144,7 @@ code = 'from flask import Flask, render_template, request\napp = Flask(__name__)
 
 def modify_code(code,language,instruction):
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are given with a code in {language}, you have to modify the code in a way that it is easy to read and understand according to the user's instruction.
         Also review the code and fix any errors in the code.
@@ -175,7 +175,7 @@ def modify_code(code,language,instruction):
     return {"code":format_python_code(res.text,language)['formatted_code'],"additional_tasks":eval(res.text)['additional_tasks']}
 def suggest_modification_to_resolve_error(error, code):
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are an expert Python developer and code fixer.
         The user provided an existing code snippet and a runtime or syntax error message.
@@ -243,7 +243,7 @@ def generate_tasks(skill_file_path: str, task: str):
         skill_content = f.read()
         
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=[f"""
         You are an expert developer. You are provided with a skill file containing instructions and guidelines, and a specific task to accomplish.
         Your goal is to complete the task by rigorously following the given skill guidelines.
@@ -288,7 +288,7 @@ def generate_tasks(skill_file_path: str, task: str):
 
 def combine_tool_and_model_res(model_res, tool_res, user_ques,memory_context):
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are given with a model response and a tool response.
         User's question: {user_ques}
@@ -330,7 +330,7 @@ def combine_tool_and_model_res(model_res, tool_res, user_ques,memory_context):
 
 def perform_verification(code,language='python'):
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are given with a code in {language}.
         Review the code and fix any errors in the code.
@@ -381,7 +381,7 @@ def check_sufficiency(task: str, agents: list, skills: list):
     skill_summary = "\n".join(f"  - {s}" for s in skills) or "  (none)"
 
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are a planning assistant for a multi-agent coding system.
 
@@ -457,7 +457,7 @@ def generate_steps_prompt(message, agents):
     )
 
     res = client.models.generate_content(
-        model='gemma-4-26b-a4b-it',
+        model='gemini-3.1-flash-lite',
         contents=f"""
         You are given a task and a list of available agents with their names and descriptions.
         Your job is to break the task into a list of actionable steps to complete it.

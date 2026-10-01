@@ -185,7 +185,7 @@ def assign_task_to_agent(name:str,task:str):
         status = createFiles(files,contents,app_name)
         if status == "Failure":
             return "Couldn't build the entire codebase.... Please try again later"
-        addContext(app_name,conclusion)
+        addContext(app_name,conclusion,files)
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
         return "Task not assigned to agent because agent wasn't found"

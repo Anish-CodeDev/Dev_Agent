@@ -1,6 +1,6 @@
 import grpc
-import config_pb2
-import config_pb2_grpc
+import grpc_utils.config_pb2 as config_pb2
+import grpc_utils.config_pb2_grpc as config_pb2_grpc
 
 def createFiles(files,contents,name):
     if(isinstance(files,list) and isinstance(contents,list) and isinstance(name,str)):

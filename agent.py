@@ -16,8 +16,8 @@ from google import genai
 from gemini import combine_tool_and_model_res
 import subprocess
 from multi_agent import MultiAgent
-from rest import RestApi
 from context import addContext,getContext
+from grpc_utils.client import createFiles,executeCommands
 load_dotenv()
 client = genai.Client()
 db = DBOps() 
@@ -26,8 +26,7 @@ memory_context = ''
 app_name = ''
 in_planning_mode = False
 
-def create_rest_obj(url):
-    return RestApi(url)
+
 
 def file_create_with_content(task,skill):
     res = generate_tasks(skill,task)
@@ -180,26 +179,15 @@ def assign_task_to_agent(name:str,task:str):
         # Utilize the chosen skill to generate the code
         res = generate_tasks(f"skills/{skill}",task)
         commands = res['commands']
-        print("Installing packages")
-        obj = create_rest_obj("http://localhost:5000/commands")
-        data = {
-            "commands":commands,
-            "app_name":app_name
-        }
-        print(f"*****data: {data}*******")
-        response = obj.post(data)
-        if(response['status'] == "Failed"):
-            return "Couldn't install dependencies"
+        print("Installing packages...")
+        status = executeCommands(commands,app_name,False)
+        if status == "Failure":
+            return "Couldn't install all the dependencies... Please try again later"
         print("Creating files and writing code")
         files,contents,conclusion = file_create_with_content(task,f"skills/{skill}")
-        obj = create_rest_obj("http://localhost:5000/")
-        data = {
-            "files":files,
-            "contents":contents,
-            "app_name":app_name
-        }
-        res = obj.post(data)
-        print(res)
+        status = createFiles(files,contents,app_name)
+        if status == "Failure":
+            return "Couldn't build the entire codebase.... Please try again later"
         addContext(app_name,conclusion)
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
@@ -214,7 +202,7 @@ def assign_task_to_agent(name:str,task:str):
     apps.append(app_name)
     db.update_document({'name':name},{'$set':{'status':'inactive','apps':apps}})
     tool_info = "Task assigned to agent which does the following: " + conclusion
-    return f"Task assigned to agent which does the following: {conclusion}"
+    return f"Task has been completed by the agent which does the following: {conclusion}"
             
 @tool
 def modify_code_tool(name:str,app_name:str,instruction:str):

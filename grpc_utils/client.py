@@ -12,9 +12,9 @@ def createFiles(files,contents,name):
                     config_pb2.CreateFileRequest(files=files,contents=contents,app_name=name)
                 )
                 print(res)
-
+                return "Success"
             except Exception as e:
-                print("An error occurred:",str(e))
+                return "Failure"
     else:
         raise TypeError("Incorrect format provided")
 

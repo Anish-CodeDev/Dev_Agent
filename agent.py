@@ -142,9 +142,6 @@ def assign_task_to_agent(name:str,task:str):
         global app_name
         if not in_planning_mode:
             app_name = eval(res.text)['app_name']
-            folder_name = f'apps/{app_name}'
-        if not os.path.exists(app_name):
-            os.makedirs(app_name)
         # Search for the best skill to solve the user's task
         skills = []
         for skill in os.listdir("skills"):

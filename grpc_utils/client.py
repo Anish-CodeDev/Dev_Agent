@@ -12,6 +12,8 @@ def createFiles(files,contents,name):
                     config_pb2.CreateFileRequest(files=files,contents=contents,app_name=name)
                 )
                 print(res)
+                if res is not None:
+                    return "Failure"
                 return "Success"
             except Exception as e:
                 return "Failure"
@@ -27,12 +29,17 @@ def executeCommands(cmds,name,load_from_file):
                 res = stub.ExecuteCommands(
                     config_pb2.ExecuteCommandsRequest(cmds=cmds,app_name=name,load_from_file=load_from_file)
                 )
-                print(res)
+                
+                if res is not None:
+                    print(res)
+                    return "Failure"
 
+                return "Success"
             except Exception as e:
                 print("An error occurred:",str(e))
+                return "Failure"
     else:
-        raise TypeError("Incorrect format provided")
+        return "Incorrect data format provided by agent"
 
 if __name__ == "__main__":
     executeCommands(['echo "hey there"'],'test',False)

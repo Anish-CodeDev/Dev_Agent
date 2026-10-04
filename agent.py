@@ -175,17 +175,17 @@ def assign_task_to_agent(name:str,task:str):
         print("skill used",skill)
         # Utilize the chosen skill to generate the code
         res = generate_tasks(f"skills/{skill}",task)
-        commands = res['commands']
-        print("Installing packages...")
-        status = executeCommands(commands,app_name,False)
-        if status == "Failure":
-            return "Couldn't install all the dependencies... Please try again later"
         print("Creating files and writing code")
         files,contents,conclusion = file_create_with_content(task,f"skills/{skill}")
         status = createFiles(files,contents,app_name)
         if status == "Failure":
             return "Couldn't build the entire codebase.... Please try again later"
         addContext(app_name,conclusion,files)
+        commands = res['commands']
+        print("Executing setup and run commands...")
+        status = executeCommands(commands,app_name,False)
+        if status == "Failure":
+            return "Couldn't execute the setup and run commands... Please try again later"
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
         return "Task not assigned to agent because agent wasn't found"

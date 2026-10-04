@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x63onfig.proto\"P\n\x16\x45xecuteCommandsRequest\x12\x0c\n\x04\x63mds\x18\x01 \x03(\t\x12\x10\n\x08\x61pp_name\x18\x02 \x01(\t\x12\x16\n\x0eload_from_file\x18\x03 \x01(\x08\")\n\x17\x45xecuteCommandsResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\"F\n\x11\x43reateFileRequest\x12\r\n\x05\x66iles\x18\x01 \x03(\t\x12\x10\n\x08\x63ontents\x18\x02 \x03(\t\x12\x10\n\x08\x61pp_name\x18\x03 \x01(\t\"$\n\x12\x43reateFileResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\"\x1f\n\x0fViewFileRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\" \n\x10ViewFileResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t2\xbf\x01\n\x0eManageAgentOps\x12\x44\n\x0f\x45xecuteCommands\x12\x17.ExecuteCommandsRequest\x1a\x18.ExecuteCommandsResponse\x12\x36\n\x0b\x43reateFiles\x12\x12.CreateFileRequest\x1a\x13.CreateFileResponse\x12/\n\x08ViewFile\x12\x10.ViewFileRequest\x1a\x11.ViewFileResponseB\x1dZ\x1borderservice/common;agentpbb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x63onfig.proto\"P\n\x16\x45xecuteCommandsRequest\x12\x0c\n\x04\x63mds\x18\x01 \x03(\t\x12\x10\n\x08\x61pp_name\x18\x02 \x01(\t\x12\x16\n\x0eload_from_file\x18\x03 \x01(\x08\")\n\x17\x45xecuteCommandsResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\"F\n\x11\x43reateFileRequest\x12\r\n\x05\x66iles\x18\x01 \x03(\t\x12\x10\n\x08\x63ontents\x18\x02 \x03(\t\x12\x10\n\x08\x61pp_name\x18\x03 \x01(\t\"$\n\x12\x43reateFileResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\"1\n\x0fViewFileRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x10\n\x08\x61pp_name\x18\x02 \x01(\t\" \n\x10ViewFileResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t2\xbf\x01\n\x0eManageAgentOps\x12\x44\n\x0f\x45xecuteCommands\x12\x17.ExecuteCommandsRequest\x1a\x18.ExecuteCommandsResponse\x12\x36\n\x0b\x43reateFiles\x12\x12.CreateFileRequest\x1a\x13.CreateFileResponse\x12/\n\x08ViewFile\x12\x10.ViewFileRequest\x1a\x11.ViewFileResponseB\x1dZ\x1borderservice/common;agentpbb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -41,9 +41,9 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CREATEFILERESPONSE']._serialized_start=213
   _globals['_CREATEFILERESPONSE']._serialized_end=249
   _globals['_VIEWFILEREQUEST']._serialized_start=251
-  _globals['_VIEWFILEREQUEST']._serialized_end=282
-  _globals['_VIEWFILERESPONSE']._serialized_start=284
-  _globals['_VIEWFILERESPONSE']._serialized_end=316
-  _globals['_MANAGEAGENTOPS']._serialized_start=319
-  _globals['_MANAGEAGENTOPS']._serialized_end=510
+  _globals['_VIEWFILEREQUEST']._serialized_end=300
+  _globals['_VIEWFILERESPONSE']._serialized_start=302
+  _globals['_VIEWFILERESPONSE']._serialized_end=334
+  _globals['_MANAGEAGENTOPS']._serialized_start=337
+  _globals['_MANAGEAGENTOPS']._serialized_end=528
 # @@protoc_insertion_point(module_scope)

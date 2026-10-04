@@ -247,7 +247,10 @@ def generate_tasks(skill_file_path: str, task: str):
         contents=[f"""
         You are an expert developer. You are provided with a skill file containing instructions and guidelines, and a specific task to accomplish.
         Your goal is to complete the task by rigorously following the given skill guidelines.
-        Determine the necessary terminal commands to run and the files to be created to accomplish this task.
+        Determine the files to be created and the necessary terminal commands to set up and run the task.
+        The backend creates all files listed in files_to_be_created, so do not include commands that create, write, or edit files.
+        Include the appropriate command to run or launch the generated application, using its entry-point file or project runner as appropriate.
+        Commands are executed after the backend creates the files.
         Provide a concise conclusion summarizing the planned work. Do not claim that commands were run or files were created.
         """, skill_content, f"Task to complete: {task}"],
         config=types.GenerateContentConfig(

@@ -69,6 +69,16 @@ COLLECTION_NAME="agents"
 
 > Never commit your `.env` file. Make sure it's listed in `.gitignore`.
 
+### Web workspace
+
+Start the existing file-management gRPC service on port `9000`, then launch the dashboard from the repository root:
+
+```powershell
+python main.py
+```
+
+Open `http://127.0.0.1:5000` to submit a build task and browse generated projects. Open a project to view its directory tree and file previews, and use the project-scoped chat to discuss its implementation. Chat history is kept for the current browser tab, and chat does not directly edit files; submit a task from the App builder to request code changes. The project explorer derives each app's directory tree from its `files` paths in `data/context.json`; nested paths such as `src/app.py` appear under their directories. Choose Plan to use the CLI's multi-agent planning flow or Individual to use its conversational agent flow; in Individual mode, you can optionally prefer a specific agent. Both CLI and dashboard call the same task-orchestration functions. The FastAPI dashboard uses the same MongoDB agent records, app context, Gemini workflow, and gRPC file service as the existing agent. The gRPC service must be running for file creation, command execution, and remote file previews.
+
 ***
 
 ## Usage

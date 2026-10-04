@@ -16,7 +16,7 @@ from google import genai
 from gemini import combine_tool_and_model_res
 import subprocess
 from multi_agent import MultiAgent
-from context import addContext,getContext
+from context import addContext,getContext,getFiles
 from grpc_utils.client import createFiles,executeCommands
 load_dotenv()
 client = genai.Client()
@@ -287,100 +287,127 @@ graph.add_conditional_edges(
     })
 graph.add_edge('tool_node','agent')
 app = graph.compile()
-mode = input("Enter a mode: P-> plan and I-> Individual Agent: ")
 
-if mode == 'P':
-    user_inp = input("Enter your task: ")
-    while(user_inp !='exit'):
-        in_planning_mode = True
-        conversational_history = []
-        multi_agent = MultiAgent(user_inp)
-        basic_steps = multi_agent.setup()
-        res = multi_agent.generate_steps()
-        app_name = res['app_name']
-        folder_name = f'apps/{app_name}'
-        if basic_steps:
 
-            for r in basic_steps['agents_to_create']:
-                step_description = f"I want you to create an agent named {r['name']} for the following task: {user_inp}. Here is what it should be doing: {r['description']}"
-                print(step_description)
-                conversational_history.append(HumanMessage(content=step_description))
-                res = app.invoke({"messages":conversational_history})
-                conversational_history = res['messages']
-                model_response = ''
-                try:
-                    if(res['messages'][1].content[1]['text']):
-                        model_response = res['messages'][1].content[1]['text']
-                except:
-                    pass
-                final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
-                if memory:
-                    memory_context += memory + '\n'
-                conversational_history.append(AIMessage(content=model_response))
-                tool_info = ''
-                print("AI: ",final_res)
-            print("Creating Skills...")
-            for r in basic_steps['skills_to_create']:
-                step_description = f"I want you to create a skill which does the following: {r}"
-                print(step_description)
-                conversational_history.append(HumanMessage(content=step_description))
-                res = app.invoke({"messages":conversational_history})
-                conversational_history = res['messages']
-                model_response = ''
-                try:
-                    if(res['messages'][1].content[1]['text']):
-                        model_response = res['messages'][1].content[1]['text']
-                except:
-                    pass
-                print("Came till here...")
-                final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
-                if memory:
-                    memory_context += memory + '\n'
-                conversational_history.append(AIMessage(content=model_response))
-                tool_info = ''
-                print("AI: ",final_res)
-        for r in res['steps']:
-            print(r['step_description'])
-            conversational_history.append(HumanMessage(content=r['step_description']))
-            if(getContext(app_name)):
-                print("Updated context.json ")
-                conversational_history.append(AIMessage(content=getContext(app_name)))
-            res = app.invoke({"messages":conversational_history})
-            conversational_history = res['messages']
-            model_response = ''
-            try:
-                if(res['messages'][1].content[1]['text']):
-                    model_response = res['messages'][1].content[1]['text']
-            except:
-                pass
-            final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
-            if memory:
-                memory_context += memory + '\n'
-            conversational_history.append(AIMessage(content=model_response))
-            tool_info = ''
-            print("AI: ",final_res)
-        user_inp = input("Enter your task: ")
-        
-else:
+def _extract_model_response(result):
+    try:
+        content = result['messages'][1].content[1]['text']
+        return content if content else ''
+    except (IndexError, KeyError, TypeError):
+        return ''
 
-    user_inp = input("Enter something: ")
+
+def _run_conversation_step(user_input, conversational_history, use_model_history=False):
+    global memory_context, tool_info
+    conversational_history.append(HumanMessage(content=user_input))
+    result = app.invoke({"messages": conversational_history})
+    if use_model_history:
+        conversational_history = result['messages']
+    model_response = _extract_model_response(result)
+    final_response, memory = combine_tool_and_model_res(
+        model_response, tool_info, user_input, memory_context
+    )
+    if memory:
+        memory_context += memory + '\n'
+    conversational_history.append(AIMessage(content=model_response))
+    tool_info = ''
+    return final_response, conversational_history
+
+
+def run_individual_task(user_input, agent_name=None):
+    prompt = user_input
+    if agent_name:
+        prompt = f"Use the agent named {agent_name} to complete this task: {user_input}"
+    final_response, _ = _run_conversation_step(prompt, [])
+    return final_response
+
+
+def run_project_chat(project_name, message, history):
+    project_files = getFiles(project_name)
+    project_context = getContext(project_name)
+    system_prompt = SystemMessage(
+        content=(
+            f"You are the project assistant for the app '{project_name}'. "
+            "Answer questions and discuss this project's implementation using its context. "
+            "This chat cannot edit or run project files. Do not claim to have done so. If the "
+            "user wants code changes, explain that they can submit a task from the App builder.\n"
+            f"Known project files: {project_files}\\n"
+            f"Project context: {project_context}"
+        )
+    )
+    chat_model = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite')
+    messages = [system_prompt]
+    for entry in history:
+        if entry["role"] == "user":
+            messages.append(HumanMessage(content=entry["content"]))
+        else:
+            messages.append(AIMessage(content=entry["content"]))
+    messages.append(HumanMessage(content=message))
+    response = chat_model.invoke(messages)
+    return response.content
+
+
+def run_plan_task(user_input):
+    global app_name, in_planning_mode
+    in_planning_mode = True
     conversational_history = []
+    responses = []
+    try:
+        multi_agent = MultiAgent(user_input)
+        basic_steps = multi_agent.setup()
+        plan = multi_agent.generate_steps()
+        app_name = plan['app_name']
 
-    while user_inp!='exit':
-        conversational_history.append(HumanMessage(content=user_inp))
-        res = app.invoke({"messages":conversational_history})
-        #conversational_history = res['messages']
-        #print(res)
-        model_response = ''
-        try:
-            if(res['messages'][1].content[1]['text']):
-                model_response = res['messages'][1].content[1]['text']
-        except:
-            pass
-        final_res, memory = combine_tool_and_model_res(model_response,tool_info,user_inp,memory_context)
-        if memory:
-            memory_context += memory + '\n'
-        conversational_history.append(AIMessage(content=model_response))
-        tool_info = ''
-        print("AI: ",final_res)
-        user_inp = input("Enter something: ")
+        if basic_steps:
+            for item in basic_steps['agents_to_create']:
+                description = (
+                    f"I want you to create an agent named {item['name']} for the following "
+                    f"task: {user_input}. Here is what it should be doing: {item['description']}"
+                )
+                final_response, conversational_history = _run_conversation_step(
+                    description, conversational_history, use_model_history=True
+                )
+                responses.append(final_response)
+
+            for skill in basic_steps['skills_to_create']:
+                description = f"I want you to create a skill which does the following: {skill}"
+                final_response, conversational_history = _run_conversation_step(
+                    description, conversational_history, use_model_history=True
+                )
+                responses.append(final_response)
+
+        for step in plan['steps']:
+            description = step['step_description']
+            if getContext(app_name):
+                conversational_history.append(AIMessage(content=getContext(app_name)))
+            final_response, conversational_history = _run_conversation_step(
+                description, conversational_history, use_model_history=True
+            )
+            responses.append(final_response)
+
+        return {
+            "app": app_name,
+            "message": "\n".join(responses),
+            "steps": len(plan['steps']),
+        }
+    finally:
+        in_planning_mode = False
+
+
+def run_cli():
+    mode = input("Enter a mode: P-> plan and I-> Individual Agent: ")
+    user_inp = input("Enter your task: " if mode == 'P' else "Enter something: ")
+
+    while user_inp != 'exit':
+        if mode == 'P':
+            result = run_plan_task(user_inp)
+            print("AI: ", result["message"])
+            user_inp = input("Enter your task: ")
+        else:
+            response = run_individual_task(user_inp)
+            print("AI: ", response)
+            user_inp = input("Enter something: ")
+
+
+if __name__ == "__main__":
+    run_cli()

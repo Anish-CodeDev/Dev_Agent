@@ -16,6 +16,7 @@ filetype==1.2.0
 Flask==3.1.2
 Flask-JWT-Extended==4.7.1
 Flask-SQLAlchemy==3.1.1
+fastapi==0.115.12
 google-auth==2.48.0
 google-genai==1.60.0
 greenlet==3.3.1
@@ -67,5 +68,6 @@ urllib3==2.6.3
 uuid-utils==0.14.0
 websockets==15.0.1
 Werkzeug==3.1.5
+uvicorn==0.34.0
 xxhash==3.6.0
 zstandard==0.25.0

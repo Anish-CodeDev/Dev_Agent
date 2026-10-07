@@ -9,7 +9,7 @@ gemini = Client()
 class ModifyCodeFuncs:
     def __init__(self,instruction,folder_name):
         self.instruction = instruction
-        self.model = "gemma-4-26b-a4b-it"
+        self.model = "gemini-3.1-flash-lite"
         self.folder_name = folder_name
     def generate_summary_for_code(self,filename:str):
         with open(filename,"r") as f:

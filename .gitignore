@@ -5,3 +5,6 @@ backend-dev/
 frontend-dev/
 PortfolioDeveloper/
 NOTE.txt
+data/
+skills/
+test.py

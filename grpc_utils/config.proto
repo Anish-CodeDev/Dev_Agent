@@ -1,0 +1,33 @@
+syntax = "proto3";
+option go_package = "orderservice/common;agentpb";
+
+service ManageAgentOps{
+    rpc ExecuteCommands(ExecuteCommandsRequest) returns (ExecuteCommandsResponse);
+    rpc CreateFiles (CreateFileRequest) returns (CreateFileResponse);
+    rpc ViewFile (ViewFileRequest) returns (ViewFileResponse);
+}
+
+message ExecuteCommandsRequest{
+     repeated string cmds= 1;
+     string app_name = 2;
+     bool load_from_file = 3;
+}
+message ExecuteCommandsResponse{
+    string status= 1;
+}
+message CreateFileRequest{
+    repeated string files= 1;
+    repeated string contents = 2;
+    string app_name = 3;
+}
+message CreateFileResponse{
+    string status = 1;
+}
+message ViewFileRequest{
+    string path = 1;
+    string app_name = 2;
+}
+
+message ViewFileResponse{
+    string code = 1;
+}

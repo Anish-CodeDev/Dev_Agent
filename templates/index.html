@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101116">
+    <title>Dev Agent — Workspace</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a class="brand" href="/" aria-label="Dev Agent home">
+                <span class="brand-mark" aria-hidden="true">D</span>
+                <span>dev<span class="brand-light">agent</span></span>
+                <span class="brand-version">BETA</span>
+            </a>
+
+            <div class="sidebar-label">WORKSPACE</div>
+            <nav class="primary-nav" aria-label="Main navigation">
+                <a class="nav-item active" href="#builder">
+                    <span class="nav-icon" aria-hidden="true">⌘</span>
+                    <span>App builder</span>
+                    <span class="nav-key">⌘ 1</span>
+                </a>
+                <a class="nav-item" href="#projects">
+                    <span class="nav-icon grid-icon" aria-hidden="true">▦</span>
+                    <span>Projects</span>
+                </a>
+                <button class="nav-item" id="open-agents" type="button" aria-haspopup="dialog" aria-controls="agents-dialog">
+                    <span class="nav-icon" aria-hidden="true">◈</span>
+                    <span>Agents</span>
+                    <span class="nav-count" id="agent-count">—</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-section-heading">
+                <span class="sidebar-label">YOUR PROJECTS</span>
+                <button class="icon-button small" id="refresh-apps" type="button" aria-label="Refresh projects" title="Refresh projects">↻</button>
+            </div>
+            <div class="project-list" id="project-list">
+                <div class="sidebar-loading">Loading projects…</div>
+            </div>
+
+            <div class="sidebar-footer">
+                <span class="connection-dot"></span>
+                <span>Local workspace</span>
+                <span class="connection-label">CONNECTED</span>
+            </div>
+        </aside>
+
+        <main class="main-area">
+            <header class="topbar">
+                <div class="breadcrumbs">
+                    <span>Workspace</span>
+                    <span class="breadcrumb-divider">/</span>
+                    <strong id="breadcrumb-current">App builder</strong>
+                </div>
+                <div class="topbar-actions">
+                    <span class="server-status"><span class="connection-dot"></span> Agent runtime</span>
+                    <span class="avatar" aria-label="User">A</span>
+                </div>
+            </header>
+
+            <div class="workspace-content" id="builder">
+                <section class="builder-column">
+                    <div class="welcome-block">
+                        <div class="eyebrow"><span class="sparkle">✳</span> YOUR AI DEVELOPMENT WORKSPACE</div>
+                        <h1>Build something<br><span>remarkable.</span></h1>
+                        <p>Describe what you want to make. Your agents will take it from idea to working code.</p>
+                    </div>
+
+                    <form class="task-composer panel" id="task-form">
+                        <label for="task-input" class="composer-label">What are we building today?</label>
+                        <textarea id="task-input" name="task" rows="4" maxlength="10000" placeholder="A dashboard for tracking my team's weekly goals, with a clean dark interface…"></textarea>
+                        <div class="composer-footer">
+                            <div class="agent-picker-wrap">
+                                <span class="picker-caption">WORKFLOW</span>
+                                <select id="mode-select" aria-label="Choose a build workflow">
+                                    <option value="plan">Plan · coordinate agents</option>
+                                    <option value="individual">Individual · agent chat</option>
+                                </select>
+                            </div>
+                            <div class="agent-picker-wrap" id="agent-picker">
+                                <span class="picker-caption">PREFERRED AGENT · OPTIONAL</span>
+                                <select id="agent-select" aria-label="Optionally choose an agent">
+                                    <option value="">Loading agents…</option>
+                                </select>
+                            </div>
+                            <div class="composer-submit">
+                                <span class="char-count" id="char-count">0 / 10,000</span>
+                                <button class="primary-button" id="submit-task" type="submit" disabled>
+                                    <span id="submit-label">Start building</span>
+                                    <span class="button-arrow" aria-hidden="true">↗</span>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div class="activity-panel panel" id="activity-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <span class="section-kicker">BUILD ACTIVITY</span>
+                                <h2 id="activity-title">Ready when you are</h2>
+                            </div>
+                            <span class="activity-indicator" id="activity-indicator"><span></span> IDLE</span>
+                        </div>
+                        <div class="activity-body" id="activity-body">
+                            <div class="activity-empty">
+                                <span class="empty-glyph" aria-hidden="true">⌁</span>
+                                <div>
+                                    <strong>Your next build starts here</strong>
+                                    <p>Choose an agent and describe a task to see progress and results.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tip-row">
+                        <span class="tip-icon" aria-hidden="true">✦</span>
+                        <span>Tip: Be specific about the framework, features, and visual style you want.</span>
+                    </div>
+                </section>
+
+                <aside class="project-hub panel" id="projects">
+                    <div class="project-hub-heading">
+                        <span class="section-kicker">YOUR WORKSPACE</span>
+                        <h2>Projects</h2>
+                        <p>Open a project to browse its files and continue the conversation in context.</p>
+                    </div>
+                    <div class="project-card-list" id="project-card-list">
+                        <div class="tree-empty">Your generated projects will appear here.</div>
+                    </div>
+                </aside>
+            </div>
+        </main>
+    </div>
+    <dialog class="agent-dialog" id="agents-dialog" aria-labelledby="agents-dialog-title">
+        <div class="agent-dialog-header">
+            <div>
+                <span class="section-kicker">AVAILABLE SPECIALISTS</span>
+                <h2 id="agents-dialog-title">Choose an agent</h2>
+                <p>Select an agent to use it in Individual mode.</p>
+            </div>
+            <button class="icon-button dialog-close" id="close-agents" type="button" aria-label="Close agent picker">×</button>
+        </div>
+        <label class="agent-search-label" for="agent-search">SEARCH AGENTS</label>
+        <input class="agent-search" id="agent-search" type="search" placeholder="Find an agent by name or role…">
+        <div class="agent-choice-list" id="agent-choice-list" role="listbox" aria-label="Available agents">
+            <div class="tree-empty">Loading agents…</div>
+        </div>
+        <div class="agent-dialog-footer">
+            <span>Choosing an agent selects the Individual workflow.</span>
+            <button class="secondary-button" id="use-auto-agent" type="button">Let Dev Agent decide</button>
+        </div>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+</body>
+</html>

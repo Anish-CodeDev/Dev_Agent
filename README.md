@@ -50,7 +50,7 @@ pip install -r requirements.txt
 python agent.py
 
 # Clone the backend service
-git clone [https://github.com/Anish-CodeDev/Dev_Agent_Backend.git](https://github.com/Anish-CodeDev/Dev_Agent_Backend.git)
+git clone https://github.com/Anish-CodeDev/Dev_Agent_Backend.git
 ```
 
 ### Environment Setup

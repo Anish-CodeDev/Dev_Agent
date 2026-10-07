@@ -42,11 +42,15 @@ User selects agent → Assigns task → Agent executes → Output
 
 ## Getting Started
 
-```
+```bash
+# Clone Dev_Agebt
 git clone https://github.com/Anish-CodeDev/Dev_Agent.git
 cd Dev_Agent
 pip install -r requirements.txt
 python agent.py
+
+# Clone the backend service
+git clone [https://github.com/Anish-CodeDev/Dev_Agent_Backend.git](https://github.com/Anish-CodeDev/Dev_Agent_Backend.git)
 ```
 
 ### Environment Setup

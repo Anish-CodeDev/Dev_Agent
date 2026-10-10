@@ -7,8 +7,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Annotated,Sequence,TypedDict
 from dotenv import load_dotenv
 from mongodb import DBOps
-from gemini import process_query_to_json,generate_skills,generate_tasks
+from gemini import process_query_to_json,generate_skills,generate_tasks,list_available_skills
 import os
+from pathlib import Path
 from code_gen import ModifyCode
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
@@ -143,10 +144,9 @@ def assign_task_to_agent(name:str,task:str):
         if not in_planning_mode:
             app_name = eval(res.text)['app_name']
         # Search for the best skill to solve the user's task
-        skills = []
-        for skill in os.listdir("skills"):
-            if skill.endswith(".md") and skill!="skill_template.md":
-                skills.append(skill)
+        skills = list_available_skills()
+        if not skills:
+            return "No reusable skills were found in the skills directory."
         print('came till here')
         print(skills)
         print("Going into res")
@@ -172,11 +172,14 @@ def assign_task_to_agent(name:str,task:str):
             }
         )
         skill = eval(res.text)['skill']
+        if skill not in skills:
+            raise ValueError(f"The selected skill is not available: {skill}")
         print("skill used",skill)
         # Utilize the chosen skill to generate the code
-        res = generate_tasks(f"skills/{skill}",task)
+        skill_path = Path(__file__).resolve().parent / "skills" / skill
+        res = generate_tasks(str(skill_path),task)
         print("Creating files and writing code")
-        files,contents,conclusion = file_create_with_content(task,f"skills/{skill}")
+        files,contents,conclusion = file_create_with_content(task,str(skill_path))
         status = createFiles(files,contents,app_name)
         if status == "Failure":
             return "Couldn't build the entire codebase.... Please try again later"

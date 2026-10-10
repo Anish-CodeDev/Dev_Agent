@@ -1,4 +1,4 @@
-from gemini import generate_steps_prompt,check_sufficiency
+from gemini import generate_steps_prompt,check_sufficiency,list_available_skills
 from mongodb import DBOps
 import os
 class MultiAgent:
@@ -18,9 +18,7 @@ class MultiAgent:
         res = check_sufficiency(self.message, self.agents, self.skills)
         return res
     def get_skills(self):
-        for skill in os.listdir("skills"):
-            if skill.endswith(".md") and skill != "skill_template.md":
-                self.skills.append(skill)
+        self.skills = list_available_skills()
     def generate_steps(self):
         # Consists of the final name of the app and the steps to complete the task(agent name and step description)
         self.get_agents()

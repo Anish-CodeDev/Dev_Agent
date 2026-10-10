@@ -32,6 +32,11 @@
                     <span>Agents</span>
                     <span class="nav-count" id="agent-count">—</span>
                 </button>
+                <button class="nav-item" id="open-skills" type="button" aria-haspopup="dialog" aria-controls="skills-dialog">
+                    <span class="nav-icon" aria-hidden="true">✳</span>
+                    <span>Skills</span>
+                    <span class="nav-count" id="skill-count">—</span>
+                </button>
             </nav>
 
             <div class="sidebar-section-heading">
@@ -153,6 +158,53 @@
             <span>Choosing an agent selects the Individual workflow.</span>
             <button class="secondary-button" id="use-auto-agent" type="button">Let Dev Agent decide</button>
         </div>
+    </dialog>
+    <dialog class="agent-dialog skills-dialog" id="skills-dialog" aria-labelledby="skills-dialog-title">
+        <div class="agent-dialog-header">
+            <div>
+                <span class="section-kicker">REUSABLE KNOW-HOW</span>
+                <h2 id="skills-dialog-title">Skill library</h2>
+                <p>Explore the instructions your agents can use, or generate a skill for a new workflow.</p>
+            </div>
+            <button class="icon-button dialog-close" id="close-skills" type="button" aria-label="Close skill library">×</button>
+        </div>
+        <div class="skills-toolbar">
+            <button class="primary-button skills-add-button" id="new-skill" type="button">
+                <span aria-hidden="true">＋</span><span>Add skill</span>
+            </button>
+        </div>
+        <div class="skills-browser" id="skills-browser">
+            <div class="skill-tree-pane">
+                <div class="skill-tree-heading">
+                    <span class="tree-root-icon" aria-hidden="true">▰</span>
+                    <span class="tree-root-name">skills/</span>
+                    <span class="file-total" id="skill-file-count">0 files</span>
+                </div>
+                <div class="skill-choice-list" id="skill-choice-list" role="tree" aria-label="Skills directory">
+                    <div class="tree-empty">Loading skills…</div>
+                </div>
+            </div>
+            <section class="skill-preview" aria-labelledby="skill-preview-title">
+                <div class="skill-preview-heading">
+                    <span class="section-kicker">SKILL DETAILS</span>
+                    <h3 id="skill-preview-title">Select a skill</h3>
+                    <p id="skill-preview-description">Choose a skill to read its instructions.</p>
+                </div>
+                <pre class="skill-content" id="skill-content"><code>Select a skill from the library to preview its contents.</code></pre>
+            </section>
+        </div>
+        <form class="skill-create-form" id="skill-create-form" hidden>
+            <label for="skill-topic">What should this skill help your agents do?</label>
+            <textarea id="skill-topic" rows="4" maxlength="300" placeholder="For example: build accessible data tables with sorting, filtering, and pagination"></textarea>
+            <p>A detailed topic helps generate useful instructions, examples, and test cases.</p>
+            <div class="skill-create-actions">
+                <button class="secondary-button" id="cancel-skill" type="button">Back to library</button>
+                <button class="primary-button" id="generate-skill" type="submit" disabled>
+                    <span id="generate-skill-label">Generate skill</span>
+                    <span class="button-arrow" aria-hidden="true">↗</span>
+                </button>
+            </div>
+        </form>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>

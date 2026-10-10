@@ -11,11 +11,21 @@ const toast = document.querySelector("#toast");
 const agentsDialog = document.querySelector("#agents-dialog");
 const agentChoiceList = document.querySelector("#agent-choice-list");
 const agentSearch = document.querySelector("#agent-search");
+const skillsDialog = document.querySelector("#skills-dialog");
+const skillChoiceList = document.querySelector("#skill-choice-list");
+const skillBrowser = document.querySelector("#skills-browser");
+const skillCreateForm = document.querySelector("#skill-create-form");
+const skillTopic = document.querySelector("#skill-topic");
+const skillPreviewTitle = document.querySelector("#skill-preview-title");
+const skillPreviewDescription = document.querySelector("#skill-preview-description");
+const skillContent = document.querySelector("#skill-content code");
 
 let apps = [];
 let agents = [];
+let skills = [];
 let toastTimer;
 let taskRunning = false;
+let skillGenerating = false;
 
 async function api(url, options = {}) {
     const response = await fetch(url, {
@@ -44,10 +54,14 @@ function updateSubmitState() {
 }
 
 function openAgentDialogFromQuery() {
-    if (new URLSearchParams(window.location.search).get("view") !== "agents") return;
-    renderAgentChoices(agentSearch.value);
-    agentsDialog.showModal();
-    agentSearch.focus();
+    const view = new URLSearchParams(window.location.search).get("view");
+    if (view === "agents") {
+        renderAgentChoices(agentSearch.value);
+        agentsDialog.showModal();
+        agentSearch.focus();
+    } else if (view === "skills") {
+        openSkillsDialog();
+    }
 }
 
 function selectApp(appName) {
@@ -126,6 +140,143 @@ function renderAgentChoices(search = "") {
         choice.addEventListener("click", () => chooseAgent(agent.name));
         agentChoiceList.append(choice);
     }
+}
+
+function buildSkillTree(skillFiles) {
+    const root = { children: new Map() };
+    for (const skill of skillFiles) {
+        const parts = skill.filename.split("/");
+        let current = root;
+        for (let index = 0; index < parts.length; index += 1) {
+            const name = parts[index];
+            const isFile = index === parts.length - 1;
+            if (!current.children.has(name)) {
+                current.children.set(name, {
+                    name,
+                    type: isFile ? "file" : "directory",
+                    children: new Map(),
+                    skill: isFile ? skill : null,
+                });
+            }
+            current = current.children.get(name);
+        }
+    }
+
+    function toArray(node) {
+        return [...node.children.values()]
+            .sort((left, right) => (
+                Number(left.type !== "directory") - Number(right.type !== "directory")
+                || left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+            ))
+            .map((child) => ({
+                ...child,
+                children: toArray(child),
+            }));
+    }
+
+    return toArray(root);
+}
+
+function renderSkillChoices() {
+    skillChoiceList.replaceChildren();
+    document.querySelector("#skill-file-count").textContent = `${skills.length} ${skills.length === 1 ? "skill" : "skills"}`;
+
+    if (!skills.length) {
+        const empty = document.createElement("div");
+        empty.className = "tree-empty";
+        empty.textContent = "No Markdown skills were found in skills/.";
+        skillChoiceList.append(empty);
+        return;
+    }
+
+    skillChoiceList.append(makeSkillTreeList(buildSkillTree(skills)));
+}
+
+function makeSkillTreeList(nodes, depth = 0) {
+    const list = document.createElement("ul");
+    list.className = depth ? "tree-list nested" : "tree-list";
+    list.setAttribute("role", "group");
+    for (const node of nodes) {
+        const entry = document.createElement("li");
+        entry.className = "tree-entry";
+        entry.setAttribute("role", "treeitem");
+        const button = document.createElement("button");
+        button.className = `tree-item${node.skill?.filename === selectedSkill ? " selected" : ""}`;
+        button.type = "button";
+        const caret = document.createElement("span");
+        caret.className = "tree-caret";
+        caret.setAttribute("aria-hidden", "true");
+        caret.textContent = node.type === "directory" ? "▾" : "";
+        const icon = document.createElement("span");
+        icon.className = `tree-icon${node.type === "file" ? " file" : ""}`;
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = node.type === "directory" ? "▰" : "◇";
+        const name = document.createElement("span");
+        name.className = "tree-name";
+        name.textContent = node.name;
+        button.append(caret, icon, name);
+        entry.append(button);
+
+        if (node.type === "directory") {
+            const children = makeSkillTreeList(node.children, depth + 1);
+            entry.append(children);
+            button.setAttribute("aria-expanded", "true");
+            button.setAttribute("aria-label", `Collapse ${node.name}`);
+            button.addEventListener("click", () => {
+                const expanded = button.getAttribute("aria-expanded") === "true";
+                button.setAttribute("aria-expanded", String(!expanded));
+                button.setAttribute("aria-label", `${expanded ? "Expand" : "Collapse"} ${node.name}`);
+                children.hidden = expanded;
+                caret.textContent = expanded ? "▸" : "▾";
+            });
+        } else {
+            button.setAttribute("aria-selected", String(node.skill.filename === selectedSkill));
+            button.addEventListener("click", () => selectSkill(node.skill));
+        }
+        list.append(entry);
+    }
+    return list;
+}
+
+let selectedSkill = "";
+
+function selectSkill(skill) {
+    selectedSkill = skill.filename;
+    skillPreviewTitle.textContent = skill.path || skill.filename;
+    skillPreviewDescription.textContent = skill.description;
+    skillContent.textContent = skill.content;
+    renderSkillChoices();
+}
+
+async function loadSkills() {
+    try {
+        skills = await api("/api/skills");
+        document.querySelector("#skill-count").textContent = String(skills.length);
+        renderSkillChoices();
+        const selected = skills.find((skill) => skill.filename === selectedSkill);
+        if (selected) {
+            selectSkill(selected);
+        } else if (skills.length) {
+            selectSkill(skills[0]);
+        } else {
+            selectedSkill = "";
+            skillPreviewTitle.textContent = "No skills yet";
+            skillPreviewDescription.textContent = "Add a skill to give your agents reusable instructions.";
+            skillContent.textContent = "";
+        }
+    } catch (error) {
+        skills = [];
+        document.querySelector("#skill-count").textContent = "!";
+        renderSkillChoices();
+        showToast(error.message, true);
+    }
+}
+
+function openSkillsDialog() {
+    skillsDialog.showModal();
+    skillBrowser.hidden = false;
+    skillCreateForm.hidden = true;
+    loadSkills();
 }
 
 function chooseAgent(name) {
@@ -269,6 +420,54 @@ document.querySelector("#open-agents").addEventListener("click", () => {
     agentSearch.focus();
 });
 document.querySelector("#close-agents").addEventListener("click", () => agentsDialog.close());
+document.querySelector("#open-skills").addEventListener("click", openSkillsDialog);
+document.querySelector("#close-skills").addEventListener("click", () => skillsDialog.close());
+document.querySelector("#new-skill").addEventListener("click", () => {
+    skillBrowser.hidden = true;
+    skillCreateForm.hidden = false;
+    skillTopic.focus();
+});
+document.querySelector("#cancel-skill").addEventListener("click", () => {
+    skillCreateForm.hidden = true;
+    skillBrowser.hidden = false;
+});
+skillTopic.addEventListener("input", () => {
+    document.querySelector("#generate-skill").disabled = skillGenerating || !skillTopic.value.trim();
+});
+skillCreateForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const topic = skillTopic.value.trim();
+    if (!topic || skillGenerating) return;
+
+    skillGenerating = true;
+    const submit = document.querySelector("#generate-skill");
+    submit.disabled = true;
+    document.querySelector("#generate-skill-label").textContent = "Generating…";
+    try {
+        const skill = await api("/api/skills", {
+            method: "POST",
+            body: JSON.stringify({ topic }),
+        });
+        skills.unshift(skill);
+        selectedSkill = "";
+        skillTopic.value = "";
+        skillCreateForm.hidden = true;
+        skillBrowser.hidden = false;
+        document.querySelector("#skill-count").textContent = String(skills.length);
+        renderSkillChoices();
+        selectSkill(skill);
+        showToast(`“${skill.title}” added to your skill library.`);
+    } catch (error) {
+        showToast(error.message, true);
+    } finally {
+        skillGenerating = false;
+        document.querySelector("#generate-skill-label").textContent = "Generate skill";
+        submit.disabled = !skillTopic.value.trim();
+    }
+});
+skillsDialog.addEventListener("click", (event) => {
+    if (event.target === skillsDialog) skillsDialog.close();
+});
 document.querySelector("#use-auto-agent").addEventListener("click", () => {
     agentSelect.value = "";
     modeSelect.value = "individual";
@@ -284,4 +483,5 @@ document.querySelector("#refresh-apps").addEventListener("click", () => loadApps
 
 loadAgents();
 loadApps();
+loadSkills();
 updateSubmitState();

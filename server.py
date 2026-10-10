@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from context import CONTEXT_FILE
+from skill_library import SKILLS_ROOT, list_available_skills, read_skill_content
 
 
 ROOT = Path(__file__).resolve().parent
@@ -89,6 +90,54 @@ def _public_tree(nodes):
     return result
 
 
+def _skill_summary(content):
+    body = content
+    if body.startswith("---"):
+        _, _, body = body.partition("---")
+        _, _, body = body.partition("---")
+
+    paragraphs = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("```"):
+            if paragraphs:
+                break
+            continue
+        paragraphs.append(line)
+    return " ".join(paragraphs) or "No description available."
+
+
+def _skill_entry(path):
+    content = read_skill_content(path)
+    title = path.stem
+    if title.endswith("_skill"):
+        title = title[:-6]
+    filename = path.relative_to(SKILLS_ROOT).as_posix()
+    return {
+        "filename": filename,
+        "path": filename,
+        "title": title.replace("_", " ").replace("-", " ").title(),
+        "description": _skill_summary(content),
+        "content": content,
+    }
+
+
+def _skill_path(filename):
+    try:
+        parts = _safe_parts(filename)
+    except ValueError:
+        return None
+    if not filename.endswith(".md") or parts[-1] == "skill_template.md":
+        return None
+    path = SKILLS_ROOT.joinpath(*parts)
+    try:
+        resolved_path = path.resolve(strict=True)
+        resolved_path.relative_to(SKILLS_ROOT.resolve())
+    except (OSError, ValueError):
+        return None
+    return resolved_path if resolved_path.is_file() else None
+
+
 @main.get("/")
 async def index(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
@@ -125,6 +174,79 @@ def list_agents():
         }
         for item in agents
     ]
+
+
+@main.get("/api/skills")
+def list_skills():
+    try:
+        return [
+            _skill_entry(SKILLS_ROOT / filename)
+            for filename in list_available_skills()
+        ]
+    except (OSError, UnicodeDecodeError) as error:
+        logger.exception("Unable to load skills")
+        return JSONResponse(
+            {"error": "Unable to load skills. Check the backend logs for details."},
+            status_code=500,
+        )
+
+
+@main.get("/api/skills/{filename:path}")
+def get_skill(filename: str):
+    path = _skill_path(filename)
+    if path is None:
+        return JSONResponse({"error": "Skill not found."}, status_code=404)
+    try:
+        return _skill_entry(path)
+    except (OSError, UnicodeDecodeError) as error:
+        logger.exception("Unable to load skill %s", filename)
+        return JSONResponse(
+            {"error": "Unable to load this skill. Check the backend logs for details."},
+            status_code=500,
+        )
+
+
+def _generate_skill(topic):
+    from gemini import generate_skills
+
+    with task_lock:
+        return generate_skills(topic)
+
+
+@main.post("/api/skills")
+async def create_skill(request: Request):
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+
+    topic = payload.get("topic")
+    if not isinstance(topic, str) or not topic.strip():
+        return JSONResponse({"error": "Describe the skill you want to add."}, status_code=400)
+    if len(topic) > 300:
+        return JSONResponse({"error": "Skill topics must be 300 characters or fewer."}, status_code=400)
+
+    try:
+        filename = await run_in_threadpool(_generate_skill, topic.strip())
+        path = _skill_path(filename)
+        if path is None:
+            raise RuntimeError("The generated skill file could not be found.")
+        return JSONResponse(_skill_entry(path), status_code=201)
+    except FileExistsError:
+        return JSONResponse(
+            {"error": "A skill with a similar topic already exists. Choose a more specific topic."},
+            status_code=409,
+        )
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except Exception:
+        logger.exception("Skill generation failed")
+        return JSONResponse(
+            {"error": "Skill generation failed. Check the backend logs for details."},
+            status_code=500,
+        )
 
 
 @main.get("/api/apps")

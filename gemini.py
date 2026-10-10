@@ -1,6 +1,11 @@
+import json
+import re
+from pathlib import Path
+
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from skill_library import SKILLS_ROOT, list_available_skills, read_skill_content
 
 load_dotenv()
 
@@ -209,8 +214,19 @@ def suggest_modification_to_resolve_error(error, code):
         "description": parsed.get("fix_description", "No change made")
     }
 def generate_skills(topic):
-    with open("skills/skill_template.md","r") as f:
-        file = f.read()
+    topic = topic.strip()
+    if not topic:
+        raise ValueError("A skill topic is required.")
+
+    skill_dir = SKILLS_ROOT
+    slug = re.sub(r"[^a-z0-9]+", "_", topic.casefold()).strip("_")[:120].strip("_")
+    if not slug:
+        raise ValueError("The skill topic must contain letters or numbers.")
+    skill_path = skill_dir / f"{slug}_skill.md"
+    if skill_path.exists():
+        raise FileExistsError(skill_path.name)
+
+    file = (skill_dir / "skill_template.md").read_text(encoding="utf-8")
     print("Read skill template")
     res = client.models.generate_content(
         model='gemini-3.1-flash-lite',
@@ -234,13 +250,13 @@ def generate_skills(topic):
         )
     )
 
-    with open(f"skills/{topic.replace(' ','_')}_skill.md","w") as f:
-        f.write(eval(res.text)['skill'])
-    return "Skill generated successfully"
+    generated_skill = json.loads(res.text)["skill"]
+    with skill_path.open("x", encoding="utf-8") as output:
+        output.write(generated_skill)
+    return skill_path.name
 
 def generate_tasks(skill_file_path: str, task: str):
-    with open(skill_file_path, "r") as f:
-        skill_content = f.read()
+    skill_content = read_skill_content(Path(skill_file_path))
         
     res = client.models.generate_content(
         model='gemini-3.1-flash-lite',

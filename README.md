@@ -136,7 +136,6 @@ Only the backend pod runs under the `gvisor` runtime class, since it is the one 
 ```
 Dev_Agent/
 ├── harness/                       # Agent harness + dashboard
-│   ├── apps/                      # Apps developed by various agents (e.g. DineDash Backend, OrderFlowProject)
 │   ├── skills/                    # Reusable skill modules
 │   ├── data/
 │   │   └── context.json           # App context; file paths drive the project explorer

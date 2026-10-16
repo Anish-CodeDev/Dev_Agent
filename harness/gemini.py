@@ -1,0 +1,539 @@
+import json
+import re
+from pathlib import Path
+
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+from skill_library import (
+    SKILLS_ROOT,
+    ensure_skills_available,
+    list_available_skills,
+    read_skill_content,
+)
+
+load_dotenv()
+
+client = genai.Client()
+
+def process_query_to_json(query: str):
+    # Precise instructions for the 'one-key-per-object' array format
+    sys_instr = (
+        "Convert the natural language query into a JSON database filter. "
+        "The output must be a single object with the key '$or'. "
+        "The value of '$or' must be an array of objects, where EACH object contains "
+        "exactly ONE key (either 'name', 'action', or 'status'). "
+        "Example: {'$or': [{'name': 'John'}, {'status': 'active'}]} "
+        "If a field is missing, do not include an object for it."
+    )
+
+    response = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"Query: {query}",
+        config=types.GenerateContentConfig(
+            system_instruction=sys_instr,
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "$or": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "name": {
+                                    "type": "STRING",
+                                    "nullable":True
+                                },
+                                "action": {
+                                    "type": "STRING",
+                                    "nullable":True
+                                },
+                                "status": {
+                                    "type": "STRING",
+                                    "nullable":True
+                                }
+                            }
+                        }
+                    }
+                },
+                "required": ["$or"]
+            }
+        )
+    )
+    return eval(response.text)
+
+
+def give_info_for_coding_task(sys_instr:str,query:str):
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are given with a task to complete: {query}
+        
+        You have to do the following:
+        1. List out the packages required to complete the task.
+        2. Give me the number of files required to complete the task.
+        3. Give me the code for each file in the task.
+        4. Without fail the mention the core framework used
+        5. Don't missout on the code for any file.
+        """,
+        config=types.GenerateContentConfig(
+            system_instruction=sys_instr,
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "language": {
+                        "type": "STRING"
+                    },
+                    "packages": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "STRING"
+                        }
+                    },
+                    "prerequisite_commands_to_run": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "STRING"
+                        }
+                    },
+                    "files": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_name": {
+                                    "type": "STRING"
+                                },
+                                "code": {
+                                    "type": "STRING"
+                                }
+                            }
+                        }
+                    },
+                    "file_to_be_executed": {
+                        "type": "STRING"
+                    },
+                    "main_frameword_used":{
+                        "type": "STRING"
+                    }
+                },
+                "required": ["packages", "files","file_to_be_executed","main_frameword_used","prerequisite_commands_to_run"]
+            }
+        )
+    )
+    return eval(res.text)
+
+def format_python_code(code,language):
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=[
+            f"""
+            You are given with a code in {language}, you have to format the code in a way that it is easy to read and understand.
+            Also review the code and fix any errors in the code.
+            Code: {code}
+            """
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "formatted_code": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["formatted_code"]
+            }
+        )
+    )
+    return eval(res.text)
+
+code = 'from flask import Flask, render_template, request\napp = Flask(__name__)\n@app.route("/", methods=["GET", "POST"]):\ndef index():\n    if request.method == "POST":\n        return f"Form submitted! Name: {request.form.get("name")}"\n    return render_template("index.html")\nif __name__ == "__main__":\n    app.run()'
+
+def modify_code(code,language,instruction):
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are given with a code in {language}, you have to modify the code in a way that it is easy to read and understand according to the user's instruction.
+        Also review the code and fix any errors in the code.
+        Code: {code}
+        Instruction: {instruction}
+
+        Also list out the additional tasks required if any to complete the user's instruction.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "modified_code": {
+                        "type": "STRING"
+                    },
+                    "additional_tasks":{
+                        "type":"ARRAY",
+                        "items":{
+                            "type":"STRING"
+                        }
+                    }
+                },
+                "required": ["modified_code","additional_tasks"]
+            }
+        )
+    )
+    return {"code":format_python_code(res.text,language)['formatted_code'],"additional_tasks":eval(res.text)['additional_tasks']}
+def suggest_modification_to_resolve_error(error, code):
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are an expert Python developer and code fixer.
+        The user provided an existing code snippet and a runtime or syntax error message.
+        Analyze the error and modify the code so that the error is resolved.
+
+        Error message:
+        {error}
+
+        Original code:
+        {code}
+
+        Return strictly valid Python code as a single string in JSON with key `fixed_code`.
+        Also include a short `fix_description` (1-2 sentences) that explains what changed.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "fixed_code": {"type": "STRING"},
+                    "fix_description": {"type": "STRING"}
+                },
+                "required": ["fixed_code", "fix_description"]
+            }
+        )
+    )
+
+    parsed = eval(res.text)
+    return {
+        "code": parsed.get("fixed_code", code),
+        "description": parsed.get("fix_description", "No change made")
+    }
+def generate_skills(topic):
+    topic = topic.strip()
+    if not topic:
+        raise ValueError("A skill topic is required.")
+
+    ensure_skills_available()
+    skill_dir = SKILLS_ROOT
+    slug = re.sub(r"[^a-z0-9]+", "_", topic.casefold()).strip("_")[:120].strip("_")
+    if not slug:
+        raise ValueError("The skill topic must contain letters or numbers.")
+    skill_path = skill_dir / f"{slug}_skill.md"
+    if skill_path.exists():
+        raise FileExistsError(skill_path.name)
+
+    file = (skill_dir / "skill_template.md").read_text(encoding="utf-8")
+    print("Read skill template")
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=[f"""
+        You are given with a skill template in the form of a .md file.
+        Your job is to generate a skill for the agent for the topic "{topic}" which can be used to complete the task.
+        The skill.md must take care of informing the model about the task and how to complete it.(Using programming languages and NOT BUILDING ANOTHER SKILL FILE)
+        Generate it in the form of md so that LLMs like you can understand it easily.
+        """,file],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "skill": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["skill"]
+            }
+        )
+    )
+
+    generated_skill = json.loads(res.text)["skill"]
+    with skill_path.open("x", encoding="utf-8") as output:
+        output.write(generated_skill)
+    return skill_path.name
+
+def generate_tasks(skill_file_path: str, task: str):
+    skill_content = read_skill_content(Path(skill_file_path))
+        
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=[f"""
+        You are an expert developer. You are provided with a skill file containing instructions and guidelines, and a specific task to accomplish.
+        Your goal is to complete the task by rigorously following the given skill guidelines.
+        Determine the files to be created and the necessary terminal commands to set up and run the task.
+        The backend creates all files listed in files_to_be_created, so do not include commands that create, write, or edit files.
+        Whenever an installation command installs a package that provides a CLI executable, include a following command that verifies the executable is available and prints its resolved path. Use the executable's documented name, not an assumed package name. Use a check appropriate for the target shell (for example, Get-Command in PowerShell, where.exe in Windows cmd, or command -v in POSIX shells). If the executable is expected at a specific path, verify that path and ensure it is available before trying to run it. Do not add executable checks for packages that provide libraries only.
+        Include the appropriate command to run or launch the generated application, using its entry-point file or project runner as appropriate.
+        Commands are executed after the backend creates the files.
+        Provide a concise conclusion summarizing the planned work. Do not claim that commands were run or files were created.
+        """, skill_content, f"Task to complete: {task}"],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "commands": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "STRING"
+                        }
+                    },
+                    "files_to_be_created": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_name": {
+                                    "type": "STRING"
+                                },
+                                "content": {
+                                    "type": "STRING"
+                                }
+                            },
+                            "required": ["file_name", "content"]
+                        }
+                    },
+                    "conclusion": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["commands", "files_to_be_created", "conclusion"]
+            }
+        )
+    )
+    return eval(res.text)
+
+def combine_tool_and_model_res(model_res, tool_res, user_ques,memory_context):
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are given with a model response and a tool response.
+        User's question: {user_ques}
+        Model response: {model_res}
+        Tool response: {tool_res}
+        Memory Context: {memory_context}
+        Step 1 - Extract memory:
+        Identify any key facts or personal information about the user present in this conversation
+        (e.g. their name, preferences, goals, or any context useful to remember in future turns).
+        Store these as concise bullet points in the 'memory' field.
+        If there is nothing worth remembering, leave 'memory' as an empty string.
+
+        Step 2 - Build combined_response:
+        Using the memory you just extracted (Step 1) as context, combine the model response and tool response
+        into a single meaningful, personalised reply to the user's question.
+        - Do NOT just concatenate; summarise and make it coherent.
+        - Use any relevant facts from memory to make the response feel personalised (e.g. address the user by name if known).
+        - Discard any components that are not relevant to the user's question.
+        - The 'memory' field must NOT appear verbatim inside 'combined_response'.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "combined_response": {
+                        "type": "STRING"
+                    },
+                    "memory": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["combined_response", "memory"]
+            }
+        )
+    )
+    parsed = eval(res.text)
+    return parsed['combined_response'], parsed['memory']
+
+def perform_verification(code,language='python'):
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are given with a code in {language}.
+        Review the code and fix any errors in the code.
+        Code: {code}
+
+        Also list out the additional tasks required if any to complete the user's instruction.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "modified_code": {
+                        "type": "STRING"
+                    }
+                },
+                "required": ["modified_code"]
+            }
+        )
+    )
+    return res.text
+
+def check_sufficiency(task: str, agents: list, skills: list):
+    """
+    Check whether the available agents and skills are sufficient to complete the task.
+
+    Args:
+        task:    The task/message to be completed.
+        agents:  A list of agent dicts, each with 'name' and 'action' keys.
+                 e.g. [{'name': 'flask-backend', 'action': 'Builds Flask servers'}, ...]
+        skills:  A list of skill filenames available in the skills/ directory.
+                 e.g. ['developing_flask_servers_skill.md', 'react.md']
+
+    Returns:
+        None  — if the existing agents and skills are sufficient.
+        dict  — with keys 'agents_to_create' (list of {name, description} dicts)
+                and 'skills_to_create' (list of strings) when gaps are detected.
+                e.g. {
+                    'agents_to_create': [{'name': 'css-designer', 'description': 'Builds styled pages using vanilla CSS'}],
+                    'skills_to_create': ['CSS Styling']
+                }
+    """
+    agent_summary = "\n".join(
+        f"  - Agent Name: \"{a['name']}\", Description: \"{a['action']}\""
+        for a in agents
+    ) or "  (none)"
+
+    skill_summary = "\n".join(f"  - {s}" for s in skills) or "  (none)"
+
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are a planning assistant for a multi-agent coding system.
+
+        Task: {task}
+
+        Available Agents:
+{agent_summary}
+
+        Available Skills (skill files):
+{skill_summary}
+
+        Your job:
+        1. Determine if the agents and skills above are sufficient to fully complete the task.
+        2. If they ARE sufficient, set 'sufficient' to true and leave both lists empty.
+        3. If they are NOT sufficient, set 'sufficient' to false and populate:
+           - 'agents_to_create': a list of objects, each with:
+               * 'name': a short kebab-case agent name (e.g. 'css-designer')
+               * 'description': a concise description of what this agent does (e.g. 'Builds styled web pages using vanilla CSS and HTML')
+           - 'skills_to_create': a list of detailed descriptions of the skills that must be generated, explaining exactly what each skill should entail and accomplish.
+        Only add what is genuinely missing — do not duplicate existing agents or skills.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "sufficient": {
+                        "type": "INTEGER"
+                    },
+                    "agents_to_create": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "name": {"type": "STRING"},
+                                "description": {"type": "STRING"}
+                            },
+                            "required": ["name", "description"]
+                        }
+                    },
+                    "skills_to_create": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING", "description": "Detailed description of the skill to be created"}
+                    }
+                },
+                "required": ["sufficient", "agents_to_create", "skills_to_create"]
+            }
+        )
+    )
+
+    parsed = eval(res.text)
+    if parsed.get("sufficient"):
+        return None
+    return {
+        "agents_to_create": parsed.get("agents_to_create", []),
+        "skills_to_create": parsed.get("skills_to_create", [])
+    }
+
+
+def generate_steps_prompt(message, agents):
+    """
+    Generate a list of steps to complete a task, assigning each step to the most suitable agent.
+
+    Args:
+        message: The task/message to break into steps.
+        agents: A list of dicts, each with 'name' and 'description' keys.
+                e.g. [{'name': 'flask-backend', 'description': 'Builds Flask servers'}, ...]
+    """
+    # Build a readable summary of available agents for the prompt
+    agent_summary = "\n".join(
+        f"- Agent Name: \"{a['name']}\", Description: \"{a['action']}\""
+        for a in agents
+    )
+
+    res = client.models.generate_content(
+        model='gemini-3.1-flash-lite',
+        contents=f"""
+        You are given a task and a list of available agents with their names and descriptions.
+        Your job is to break the task into a list of actionable steps to complete it.
+        For each step, you MUST assign it to the most suitable agent based on the agent's name and description.
+        Only use agents from the provided list.
+        Each step_description MUST include the agent name within it, describing both what to do and which agent handles it.
+        For example: "Use the flask-backend agent to set up the REST API endpoints for menu items and orders."
+
+        Task: {message}
+        Also give a suitable name for the final app
+        Available Agents:
+        {agent_summary}
+        Stick to the same names as mentioned in the available agents list, don't make even a small change in the names.
+        """,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "app_name": {
+                        "type": "STRING"
+                    },
+                    "steps": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "step_description": {
+                                    "type": "STRING"
+                                }
+                            },
+                            "required": ["step_description"]
+                        }
+                    }
+                },
+                "required": ["app_name", "steps"]
+            }
+        )
+    )
+    return eval(res.text)
+if __name__ == "__main__":
+    generate_skills("Building a http backend with golang")
+    #code = open("backend-dev/app.py","r").read()
+    #print(modify_code(code,"python",["Add a new route to the app which will redirect to the user's linkedin page","Add a new route to the app which will redirect to the user's linkedin page"]))
+    #code = format_python_code(code)    
+    #with open("backend-dev/app.py","w") as f:
+    #    f.write(code['formatted_code'])
+    #print(give_info_for_coding_task("You are good at building frontends", "Design a react app which can be used to order food for a restaurant"))
+    #print(process_query_to_json("List the agents which build the front end and status active"))
+    #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
+    #print(generate_tasks("skills/developing_flask_servers_skill.md","develop a flask server which can be used to order food for a restaurant"))
+    #print(perform_verification(open("flask-backend/app.py","r").read()))
+    #print(generate_steps_prompt("Develop a react app which can be used to order food for a restaurant", [{"name": "flask-backend", "action": "Builds Flask servers"}, {"name": "react-frontend", "action": "Builds React frontends"}]))

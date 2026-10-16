@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-agent-harness-deployment
+spec:
+  progressDeadlineSeconds: 180
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-agent-harness
+  template:
+    metadata:
+      labels:
+        app: dev-agent-harness
+    spec:
+      runtimeClassName: gvisor
+      containers:
+      - name: dev-agent-harness
+        image: dev-agent-harness:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: file-mount
+          mountPath: /data
+      volumes:
+      - name: file-mount
+        persistentVolumeClaim:
+          claimName: file-write-pvc
+      restartPolicy: Always

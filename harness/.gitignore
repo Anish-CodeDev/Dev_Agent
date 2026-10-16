@@ -1,0 +1,10 @@
+.env
+venv/
+__pycache__/
+backend-dev/
+frontend-dev/
+PortfolioDeveloper/
+NOTE.txt
+data/
+skills/
+test.py

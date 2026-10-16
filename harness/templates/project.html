@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101116">
+    <title>{{ project.name }} — Dev Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+</head>
+<body data-project="{{ project.name }}">
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a class="brand" href="/" aria-label="Dev Agent home">
+                <span class="brand-mark" aria-hidden="true">D</span>
+                <span>dev<span class="brand-light">agent</span></span>
+                <span class="brand-version">BETA</span>
+            </a>
+            <div class="sidebar-label">WORKSPACE</div>
+            <nav class="primary-nav" aria-label="Main navigation">
+                <a class="nav-item" href="/">
+                    <span class="nav-icon" aria-hidden="true">⌘</span>
+                    <span>App builder</span>
+                </a>
+                <a class="nav-item active" href="#project-files">
+                    <span class="nav-icon grid-icon" aria-hidden="true">▦</span>
+                    <span>Projects</span>
+                </a>
+                <a class="nav-item" href="/?view=agents">
+                    <span class="nav-icon" aria-hidden="true">◈</span>
+                    <span>Agents</span>
+                </a>
+            </nav>
+            <div class="sidebar-section-heading">
+                <span class="sidebar-label">YOUR PROJECTS</span>
+                <a class="icon-button small" href="/" aria-label="Back to builder" title="Back to builder">＋</a>
+            </div>
+            <div class="project-list" id="project-list">
+                <div class="sidebar-loading">Loading projects…</div>
+            </div>
+            <div class="sidebar-footer">
+                <span class="connection-dot"></span>
+                <span>Local workspace</span>
+                <span class="connection-label">CONNECTED</span>
+            </div>
+        </aside>
+
+        <main class="main-area project-main">
+            <header class="topbar">
+                <div class="breadcrumbs">
+                    <a href="/">Workspace</a>
+                    <span class="breadcrumb-divider">/</span>
+                    <strong>{{ project.name }}</strong>
+                </div>
+                <div class="topbar-actions">
+                    <span class="server-status"><span class="connection-dot"></span> Project workspace</span>
+                    <a class="back-to-builder" href="/">＋ New build</a>
+                </div>
+            </header>
+
+            <section class="project-page-heading">
+                <div>
+                    <div class="eyebrow"><span class="sparkle">✳</span> PROJECT WORKSPACE</div>
+                    <h1>{{ project.name }}</h1>
+                    <p>Browse the project structure, preview files, and chat with an assistant that knows this app.</p>
+                </div>
+                <span class="project-file-badge" id="project-file-count">— files</span>
+            </section>
+
+            <div class="project-workspace" id="project-files">
+                <section class="project-explorer panel">
+                    <div class="project-panel-header">
+                        <div>
+                            <span class="section-kicker">DIRECTORY STRUCTURE</span>
+                            <h2>{{ project.name }}</h2>
+                        </div>
+                        <button class="icon-button" id="refresh-project-files" type="button" aria-label="Refresh project files" title="Refresh">↻</button>
+                    </div>
+                    <div class="project-file-tree" id="project-file-tree" role="tree" aria-label="Project directory structure">
+                        <div class="tree-empty">Loading project files…</div>
+                    </div>
+                </section>
+
+                <section class="project-preview panel">
+                    <div class="project-panel-header">
+                        <div>
+                            <span class="section-kicker">FILE PREVIEW</span>
+                            <h2 id="project-preview-title">Select a file</h2>
+                        </div>
+                        <span class="preview-language" id="project-preview-language">—</span>
+                    </div>
+                    <pre class="code-preview project-code-preview"><code id="project-code"><span class="preview-placeholder">Choose a file from the directory structure to preview its contents.</span></code></pre>
+                </section>
+
+                <section class="project-chat panel">
+                    <div class="project-panel-header chat-header">
+                        <div>
+                            <span class="section-kicker">PROJECT CHAT</span>
+                            <h2>Ask about this app</h2>
+                        </div>
+                        <span class="chat-context-badge">CONTEXT AWARE</span>
+                    </div>
+                    <div class="chat-messages" id="chat-messages" aria-live="polite">
+                        <div class="chat-welcome">
+                            <span class="chat-welcome-icon" aria-hidden="true">✳</span>
+                            <strong>Your project, in context.</strong>
+                            <p>Ask about the app structure, implementation notes, or ideas for what to build next. To make code changes, submit a task from the App builder.</p>
+                        </div>
+                    </div>
+                    <form class="project-chat-form" id="project-chat-form">
+                        <label class="visually-hidden" for="project-chat-input">Message about this project</label>
+                        <textarea id="project-chat-input" rows="2" maxlength="5000" placeholder="Ask something about this project…"></textarea>
+                        <div class="chat-form-footer">
+                            <span>Enter to send · Shift+Enter for a new line</span>
+                            <button class="primary-button" id="send-project-chat" type="submit" disabled>
+                                <span>Send</span><span class="button-arrow" aria-hidden="true">↗</span>
+                            </button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="{{ url_for('static', path='/project.js') }}" defer></script>
+</body>
+</html>

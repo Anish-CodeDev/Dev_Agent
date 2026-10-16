@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-deployment
+spec:
+  progressDeadlineSeconds: 180
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-utils
+  template:
+    metadata:
+      labels:
+        app: redis-utils
+    spec:
+      runtimeClassName: gvisor
+      containers:
+      - name: redis-utils-container
+        image: redis:7
+        ports:
+        - containerPort: 6379
+      restartPolicy: Always

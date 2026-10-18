@@ -88,10 +88,6 @@ func (s *AgentService) ExecuteCommands(ctx context.Context, in *agent.ExecuteCom
 		}
 		}
 		if _,err:= f.Write(data);err!=nil{
-			return err
-		}
-		
-		if err!=nil{
 			fmt.Println("Error: ",err)
 			return err
 		}

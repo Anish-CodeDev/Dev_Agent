@@ -27,7 +27,17 @@ main = FastAPI(title="Dev Agent", version="1.0.0")
 main.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 logger = logging.getLogger(__name__)
 redis_streams = RedisUtils()
-TASK_SESSION_ID = "session-01"
+TASK_SESSION_IDS = frozenset(f"session-{number:02d}" for number in range(1, 6))
+DEFAULT_TASK_SESSION_ID = "session-01"
+
+
+@main.middleware("http")
+async def disable_response_caching(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 def _get_db():
@@ -403,6 +413,11 @@ async def stream_task_logs(
     session_id: str,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ):
+    if session_id not in TASK_SESSION_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail="Session ID must be between 'session-01' and 'session-05'.",
+        )
     return StreamingResponse(
         redis_streams.stream(session_id,"0-0"),
         media_type="text/event-stream",
@@ -439,10 +454,10 @@ async def create_task(request: Request):
 
     session_id = payload.get("session_id")
     if session_id is None:
-        session_id = TASK_SESSION_ID
-    if session_id != TASK_SESSION_ID:
+        session_id = DEFAULT_TASK_SESSION_ID
+    if not isinstance(session_id, str) or session_id not in TASK_SESSION_IDS:
         return JSONResponse(
-            {"error": f"Session ID must be '{TASK_SESSION_ID}'."},
+            {"error": "Session ID must be between 'session-01' and 'session-05'."},
             status_code=400,
         )
 

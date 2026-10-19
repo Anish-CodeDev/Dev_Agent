@@ -1,0 +1,21 @@
+[project]
+name = "decision-model"
+version = "0.1.0"
+description = "contains the utils which access the strands-decider model"
+readme = "README.md"
+authors = [
+    { name = "Anish-CodeDev", email = "gamedevak7@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "flash-linear-attention>=0.5.2",
+    "requests>=2.34.2",
+    "strands-decider>=0.1.0",
+]
+
+[project.scripts]
+decision-model = "decision_model:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"

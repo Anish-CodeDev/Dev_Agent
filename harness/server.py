@@ -2,7 +2,7 @@ import json
 import logging
 import asyncio
 from pathlib import Path, PurePosixPath
-
+from decision_model_utils.utils import ask_systemone
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -626,7 +626,8 @@ async def create_task(
         )
 
     try:
-        await redis_streams.emit(session_id, "System", "Task started")
+        if(ask_systemone(task.strip())):
+            await redis_streams.emit(session_id, "System", "Task started")
         await redis_streams.emit(session_id, "User", task.strip())
         with use_google_api_key(get_configured_google_api_key()):
             result = await _execute_task(
@@ -635,7 +636,9 @@ async def create_task(
                 agent_name.strip() if agent_name else None,
                 session_id,
             )
-        await redis_streams.emit(session_id, "System", "Task complete")
+        if(result['app']!='None'):
+
+            await redis_streams.emit(session_id, "System", "Task complete")
         return JSONResponse(result, status_code=201)
     except Exception:
         logger.exception("Task execution failed")

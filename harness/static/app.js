@@ -399,6 +399,7 @@ function openAgentDialogFromQuery() {
 }
 
 function selectApp(appName) {
+    if (appName === "None") return;
     window.location.assign(`/projects/${encodeURIComponent(appName)}`);
 }
 

@@ -12,7 +12,21 @@ from skill_library import (
     read_skill_content,
 )
 
-()
+
+def respond_casually(user_response: str) -> str:
+    response = get_google_client().models.generate_content(
+        model="gemini-3.1-flash-lite",
+        contents=user_response,
+        config=types.GenerateContentConfig(
+            system_instruction=(
+                "You are a friendly conversational assistant. Reply naturally and "
+                "casually to the user's message. Keep the conversation focused on "
+                "what they said. Do not call tools or claim to have taken actions."
+            )
+        ),
+    )
+    return response.text
+
 
 def process_query_to_json(query: str):
     # Precise instructions for the 'one-key-per-object' array format

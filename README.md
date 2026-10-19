@@ -198,6 +198,10 @@ COLLECTION_NAME="agents"
 
 > Never commit your `.env` file. Make sure it's listed in `.gitignore`.
 
+You can also add or replace the Google API key from **Settings** in the dashboard. A key entered there is stored server-side in `/data/env.txt` on the persistent volume; the browser does not retain or receive the key. This dashboard-saved key takes precedence over `GOOGLE_API_KEY` from the server environment.
+
+The dashboard Settings form can also save `URI`, `DB_NAME`, and `COLLECTION_NAME` in the same file. MongoDB uses the saved connection settings for subsequent operations.
+
 ### 3. Build the gVisor-enabled kind node image
 
 `backend/Dockerfile.gvisor-node` builds a node image on top of `kindest/node` with gVisor (`runsc`) installed:
@@ -276,7 +280,7 @@ kubectl exec -it <backend-pod> -- dmesg | head -1
 Forward the dashboard port to your machine and leave it running:
 
 ```bash
-kubectl port-forward deploy/dev-agent-harness-deployment 8000:8000
+kubectl port-forward -n traefik svc/traefik 8000:80
 ```
 
 Open `http://localhost:8000` to submit a build task and browse generated projects.

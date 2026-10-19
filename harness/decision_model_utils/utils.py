@@ -5,7 +5,7 @@ def ask_systemone(state):
     low = 0.3
     question = ("Does this message ask the assistant to perform a task such as "
     "searching, creating, analyzing, running something, or multi-step work?")
-    url = 'http://localhost:8080/v1/systemone'
+    url = 'http://host.docker.internal:8080/v1/systemone'
     body = {
         "state":state,
         "questions":{

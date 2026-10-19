@@ -8,15 +8,15 @@ from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Annotated,Sequence,TypedDict
-from dotenv import load_dotenv
+ 
 from mongodb import DBOps
 from gemini import process_query_to_json,generate_skills,generate_tasks,list_available_skills
 from skill_library import SKILLS_ROOT
 from code_gen import ModifyCode
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
-from google import genai
 from gemini import combine_tool_and_model_res
+from google_api import get_google_api_key, get_google_client
 import subprocess
 from multi_agent import MultiAgent
 from context import addContext,getContext,getFiles
@@ -24,8 +24,7 @@ from grpc_utils.client import createFiles,executeCommands
 from redis_utils.utils import RedisUtils
 redis_utils = RedisUtils()
 current_session_id = ContextVar("current_session_id", default=None)
-load_dotenv()
-client = genai.Client()
+()
 db = DBOps() 
 tool_info = ''
 memory_context = '' 
@@ -132,7 +131,7 @@ async def assign_task_to_agent(name:str,task:str):
         print("User's request: ",task)
         print("Agent name: ",name)
         #info = give_info_for_coding_task(r['action'],task)
-        res = client.models.generate_content(
+        res = get_google_client().models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=f"""
             You are given a task: {task}
@@ -162,7 +161,7 @@ async def assign_task_to_agent(name:str,task:str):
         print('came till here')
         print(skills)
         print("Going into res")
-        res = client.models.generate_content(
+        res = get_google_client().models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=f"""
             You are given a list of skills: {skills}
@@ -281,13 +280,13 @@ def gen_skills(topic:str):
     return res
 tools = [create_agent,modify_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
 
-llm = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite').bind_tools(tools)
-
-
 def agent(state:AgentState):
     global memory_context
     memory_note = f"\n\nThe following are key facts you remember about the user from previous turns:\n{memory_context}" if memory_context else ""
     instruction = SystemMessage(content=f"You are a helpful assistant, answer to your best ability. When a tool returns a message, relay that exact message to the user as your final response. Do not add any additional information.{memory_note}")
+    api_key = get_google_api_key()
+    model_options = {"google_api_key": api_key} if api_key else {}
+    llm = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite', **model_options).bind_tools(tools)
     res = llm.invoke([instruction]+state['messages'])
     
     return {'messages':[res]}
@@ -360,7 +359,9 @@ def run_project_chat(project_name, message, history):
             f"Project context: {project_context}"
         )
     )
-    chat_model = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite')
+    api_key = get_google_api_key()
+    model_options = {"google_api_key": api_key} if api_key else {}
+    chat_model = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite', **model_options)
     messages = [system_prompt]
     for entry in history:
         if entry["role"] == "user":

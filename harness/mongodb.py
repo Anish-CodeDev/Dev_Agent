@@ -1,16 +1,33 @@
 import pymongo
-from dotenv import load_dotenv
-import os
-load_dotenv()
+from functools import lru_cache
 
-client = pymongo.MongoClient(os.getenv('URI'))
-db = client[os.getenv('DB_NAME')]
-collection = db[os.getenv('COLLECTION_NAME')]
+from google_api import get_environment_setting
+
+
+@lru_cache(maxsize=4)
+def _database_resources(uri: str, db_name: str, collection_name: str):
+    client = pymongo.MongoClient(uri)
+    db = client[db_name]
+    return client, db, db[collection_name]
 
 class DBOps:
-    def __init__(self):
-        self.db = db
-        self.collection = collection
+    def _resources(self):
+        uri = get_environment_setting("URI")
+        db_name = get_environment_setting("DB_NAME")
+        collection_name = get_environment_setting("COLLECTION_NAME")
+        if not uri or not db_name or not collection_name:
+            raise RuntimeError(
+                "MongoDB settings are incomplete. Configure URI, DB_NAME, and COLLECTION_NAME."
+            )
+        return _database_resources(uri, db_name, collection_name)
+
+    @property
+    def db(self):
+        return self._resources()[1]
+
+    @property
+    def collection(self):
+        return self._resources()[2]
     
     def insert_document(self,data):
         try:

@@ -1,10 +1,9 @@
-from google import genai
 from google.genai import types
-from dotenv import load_dotenv
+ 
 from gemini import suggest_modification_to_resolve_error
+from google_api import get_google_client
 
-load_dotenv()
-gemini = genai.Client()
+()
 
 class Debug:
     def __init__(self,error):
@@ -12,7 +11,7 @@ class Debug:
         self.model = 'gemini-3-flash-preview'
         
     def extract_file(self):
-        res = gemini.models.generate_content(
+        res = get_google_client().models.generate_content(
             model=self.model,
             contents=[
                 f"""

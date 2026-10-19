@@ -15,13 +15,21 @@ let chatHistory = loadHistory();
 let toastTimer;
 let chatBusy = false;
 
+try {
+    localStorage.removeItem("dev-agent-google-api-key");
+} catch (error) {
+    showToast("Could not remove the old browser-stored Google API key.", true);
+}
+
 async function api(url, options = {}) {
+    const { headers: suppliedHeaders = {}, ...requestOptions } = options;
+    const headers = { "Content-Type": "application/json", ...suppliedHeaders };
     const response = await fetch(url, {
-        headers: { "Content-Type": "application/json" },
-        ...options,
+        ...requestOptions,
+        headers,
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+    if (!response.ok) throw new Error(data.error || data.detail || `Request failed (${response.status}).`);
     return data;
 }
 

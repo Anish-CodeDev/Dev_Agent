@@ -17,6 +17,16 @@ from skill_library import (
     list_available_skills,
     read_skill_content,
 )
+from google_api import (
+    ENVIRONMENT_SETTINGS,
+    environment_settings_file_has_data,
+    environment_settings_status,
+    get_configured_google_api_key,
+    remove_environment_setting,
+    save_environment_settings,
+    validate_environment_setting,
+    use_google_api_key,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -44,6 +54,151 @@ def _get_db():
     from mongodb import DBOps
 
     return DBOps()
+
+
+def _normalize_google_api_key(api_key: str | None) -> str | None:
+    if api_key is None:
+        return None
+    api_key = api_key.strip()
+    if len(api_key) > 512 or "\n" in api_key or "\r" in api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Google API keys must be 512 characters or fewer and cannot contain line breaks.",
+        )
+    return api_key or None
+
+
+def _read_environment_settings():
+    try:
+        return {
+            **environment_settings_status(),
+            "file_has_data": environment_settings_file_has_data(),
+        }
+    except (OSError, UnicodeError):
+        logger.exception("Unable to read application settings")
+        return JSONResponse(
+            {"error": "Unable to read application settings."},
+            status_code=500,
+        )
+
+
+def _save_environment_settings(payload):
+    settings = payload.get("settings")
+    if not isinstance(settings, dict) or not settings:
+        return JSONResponse({"error": "Provide at least one setting to save."}, status_code=400)
+
+    normalized = {}
+    for name, value in settings.items():
+        if name not in ENVIRONMENT_SETTINGS:
+            return JSONResponse({"error": f"Unsupported setting: {name}."}, status_code=400)
+        if not isinstance(value, str):
+            return JSONResponse({"error": f"{name} must be a string."}, status_code=400)
+        value = value.strip()
+        if not value:
+            continue
+        error = validate_environment_setting(name, value)
+        if error:
+            return JSONResponse(
+                {"error": "Correct the highlighted settings.", "field_errors": {name: error}},
+                status_code=400,
+            )
+        normalized[name] = value
+
+    if not normalized:
+        return JSONResponse({"error": "Enter a value for at least one setting."}, status_code=400)
+    current_status = environment_settings_status()
+    missing = {
+        name: "This setting is required before the workspace can start."
+        for name in ENVIRONMENT_SETTINGS
+        if (
+            not current_status[name]["saved"]
+            or not current_status[name]["valid"]
+        )
+        and name not in normalized
+    }
+    if missing:
+        return JSONResponse(
+            {"error": "Complete the required settings before saving.", "field_errors": missing},
+            status_code=400,
+        )
+    try:
+        save_environment_settings(normalized)
+        return _read_environment_settings()
+    except (OSError, UnicodeError):
+        logger.exception("Unable to save application settings")
+        return JSONResponse(
+            {"error": "Unable to save settings. Check server storage permissions."},
+            status_code=500,
+        )
+
+
+def _delete_environment_setting(name: str):
+    if name not in ENVIRONMENT_SETTINGS:
+        return JSONResponse({"error": f"Unsupported setting: {name}."}, status_code=404)
+    try:
+        remove_environment_setting(name)
+        return _read_environment_settings()
+    except (OSError, UnicodeError):
+        logger.exception("Unable to remove setting %s", name)
+        return JSONResponse(
+            {"error": "Unable to remove the setting. Check server storage permissions."},
+            status_code=500,
+        )
+
+
+@main.get("/api/settings/environment")
+def environment_settings():
+    return _read_environment_settings()
+
+
+@main.post("/api/settings/environment")
+async def update_environment_settings(request: Request):
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    return _save_environment_settings(payload)
+
+
+@main.delete("/api/settings/environment/{name}")
+def delete_environment_setting(name: str):
+    return _delete_environment_setting(name)
+
+
+@main.get("/api/settings/google-api-key")
+def google_api_key_status():
+    settings = _read_environment_settings()
+    if isinstance(settings, JSONResponse):
+        return settings
+    return settings["GOOGLE_API_KEY"]
+
+
+@main.post("/api/settings/google-api-key")
+async def update_google_api_key(request: Request):
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    raw_api_key = payload.get("api_key")
+    if not isinstance(raw_api_key, str):
+        return JSONResponse({"error": "Google API key must be a string."}, status_code=400)
+    try:
+        api_key = _normalize_google_api_key(raw_api_key)
+    except HTTPException as error:
+        return JSONResponse({"error": error.detail}, status_code=error.status_code)
+    if not api_key:
+        return JSONResponse({"error": "Enter a Google API key before saving."}, status_code=400)
+
+    return _save_environment_settings({"settings": {"GOOGLE_API_KEY": api_key}})
+
+
+@main.delete("/api/settings/google-api-key")
+def delete_google_api_key():
+    return _delete_environment_setting("GOOGLE_API_KEY")
 
 
 def _known_apps():
@@ -239,7 +394,9 @@ async def _generate_skill(topic):
 
 
 @main.post("/api/skills")
-async def create_skill(request: Request):
+async def create_skill(
+    request: Request,
+):
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -254,7 +411,8 @@ async def create_skill(request: Request):
         return JSONResponse({"error": "Skill topics must be 300 characters or fewer."}, status_code=400)
 
     try:
-        filename = await _generate_skill(topic.strip())
+        with use_google_api_key(get_configured_google_api_key()):
+            filename = await _generate_skill(topic.strip())
         path = _skill_path(filename)
         if path is None:
             raise RuntimeError("The generated skill file could not be found.")
@@ -312,7 +470,10 @@ async def _execute_project_chat(app_name, message, history):
 
 
 @main.post("/api/apps/{app_name}/chat")
-async def project_chat(request: Request, app_name: str):
+async def project_chat(
+    request: Request,
+    app_name: str,
+):
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -341,11 +502,12 @@ async def project_chat(request: Request, app_name: str):
     try:
         if not any(app["name"] == app_name for app in _known_apps()):
             return JSONResponse({"error": "Project not found."}, status_code=404)
-        reply = await _execute_project_chat(
-            app_name,
-            message.strip(),
-            history,
-        )
+        with use_google_api_key(get_configured_google_api_key()):
+            reply = await _execute_project_chat(
+                app_name,
+                message.strip(),
+                history,
+            )
         return {"reply": reply}
     except Exception:
         logger.exception("Project chat failed for %s", app_name)
@@ -429,7 +591,9 @@ async def stream_task_logs(
 
 
 @main.post("/api/tasks")
-async def create_task(request: Request):
+async def create_task(
+    request: Request,
+):
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -464,12 +628,13 @@ async def create_task(request: Request):
     try:
         await redis_streams.emit(session_id, "System", "Task started")
         await redis_streams.emit(session_id, "User", task.strip())
-        result = await _execute_task(
-            task.strip(),
-            mode,
-            agent_name.strip() if agent_name else None,
-            session_id,
-        )
+        with use_google_api_key(get_configured_google_api_key()):
+            result = await _execute_task(
+                task.strip(),
+                mode,
+                agent_name.strip() if agent_name else None,
+                session_id,
+            )
         await redis_streams.emit(session_id, "System", "Task complete")
         return JSONResponse(result, status_code=201)
     except Exception:

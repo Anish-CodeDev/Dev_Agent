@@ -22,6 +22,9 @@ const skillTopic = document.querySelector("#skill-topic");
 const skillPreviewTitle = document.querySelector("#skill-preview-title");
 const skillPreviewDescription = document.querySelector("#skill-preview-description");
 const skillContent = document.querySelector("#skill-content code");
+const settingsDialog = document.querySelector("#settings-dialog");
+const settingsForm = document.querySelector("#environment-settings-form");
+const settingsStatus = document.querySelector("#settings-status");
 
 let apps = [];
 let agents = [];
@@ -34,6 +37,12 @@ const taskSessionIds = Array.from(
     { length: maxChatSessions },
     (_, index) => `session-${String(index + 1).padStart(2, "0")}`,
 );
+
+try {
+    localStorage.removeItem("dev-agent-google-api-key");
+} catch (error) {
+    showToast("Could not remove the old browser-stored Google API key.", true);
+}
 
 function createChatSession(id) {
     return {
@@ -82,15 +91,131 @@ let activeChatSession = chatSessions.find((session) => session.id === savedChatS
     || chatSessions[0];
 
 async function api(url, options = {}) {
+    const { headers: suppliedHeaders = {}, ...requestOptions } = options;
+    const headers = { "Content-Type": "application/json", ...suppliedHeaders };
     const response = await fetch(url, {
-        headers: { "Content-Type": "application/json" },
-        ...options,
+        ...requestOptions,
+        headers,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(data.error || `Request failed (${response.status}).`);
+        const error = new Error(data.error || data.detail || `Request failed (${response.status}).`);
+        error.fieldErrors = data.field_errors || {};
+        throw error;
     }
     return data;
+}
+
+function updateEnvironmentSettingsStatus(settings) {
+    environmentSettingsState = settings;
+    settingsRequired = !settings.file_has_data;
+    document.querySelector("#close-settings").disabled = settingsRequired;
+    for (const row of settingsForm.querySelectorAll("[data-setting-row]")) {
+        const name = row.dataset.settingRow;
+        const status = settings[name];
+        row.querySelector("[data-setting-status]").textContent = status.saved
+            ? status.valid
+                ? "Saved in /data/env.txt"
+                : "Saved value is invalid"
+            : status.configured
+                ? "Using server environment"
+                : "Not configured";
+        row.querySelector("[data-clear-setting]").disabled = !status.saved;
+    }
+}
+
+let environmentSettingsState = {};
+let settingsRequired = false;
+let settingsValidationAttempted = false;
+
+function validateSetting(name, value) {
+    if (!value) {
+        const savedStatus = environmentSettingsState[name];
+        return savedStatus?.saved && savedStatus.valid
+            ? ""
+            : "This setting is required.";
+    }
+    if (value.length > (name === "GOOGLE_API_KEY" ? 512 : 4096)) {
+        return "Value is too long.";
+    }
+    if (/[\r\n]/.test(value)) {
+        return "Line breaks are not allowed.";
+    }
+    if (name === "URI" && !/^mongodb(?:\+srv)?:\/\/[^/\s?#]+(?:[/?#][^\s]*)?$/.test(value)) {
+        return "Enter a valid MongoDB URI starting with mongodb:// or mongodb+srv://.";
+    }
+    if (name === "DB_NAME" && (value.length > 63 || /[\/\\."$*<>:|?\0]/.test(value))) {
+        return "Enter a valid MongoDB database name (1–63 characters, without reserved characters).";
+    }
+    if (name === "COLLECTION_NAME" && (value.length > 120 || value.startsWith("system."))) {
+        return "Enter a valid MongoDB collection name (up to 120 characters).";
+    }
+    return "";
+}
+
+function validateSettingsForm() {
+    let isValid = true;
+    for (const input of settingsForm.querySelectorAll("[data-setting-name]")) {
+        const name = input.dataset.settingName;
+        const error = validateSetting(name, input.value.trim());
+        const row = input.closest("[data-setting-row]");
+        const status = row.querySelector("[data-setting-status]");
+        input.classList.toggle("is-invalid", Boolean(error));
+        input.setAttribute("aria-invalid", String(Boolean(error)));
+        row.classList.toggle("has-error", Boolean(error));
+        if (error) {
+            status.textContent = error;
+            isValid = false;
+        } else {
+            const savedStatus = environmentSettingsState[name];
+            status.textContent = savedStatus?.saved
+                ? savedStatus.valid
+                    ? "Saved in /data/env.txt"
+                    : "Saved value is invalid"
+                : savedStatus?.configured
+                    ? "Using server environment"
+                    : "Not configured";
+        }
+    }
+    return isValid;
+}
+
+async function openSettingsDialog(initialStatus = null) {
+    for (const input of settingsForm.querySelectorAll("[data-setting-name]")) {
+        input.value = "";
+        input.classList.remove("is-invalid");
+        input.removeAttribute("aria-invalid");
+    }
+    settingsValidationAttempted = false;
+    settingsRequired = false;
+    document.querySelector("#close-settings").disabled = settingsRequired;
+    settingsStatus.textContent = "Checking server settings…";
+    settingsDialog.showModal();
+    settingsForm.querySelector("[data-setting-name]").focus();
+    try {
+        updateEnvironmentSettingsStatus(
+            initialStatus || await api("/api/settings/environment"),
+        );
+        settingsStatus.textContent = settingsRequired
+            ? "Enter your configuration before continuing."
+            : "";
+        if (settingsValidationAttempted) validateSettingsForm();
+    } catch (error) {
+        settingsRequired = false;
+        document.querySelector("#close-settings").disabled = false;
+        settingsStatus.textContent = "Could not load server settings.";
+        showToast(error.message, true);
+    }
+}
+
+async function requireEnvironmentSettings() {
+    try {
+        const settings = await api("/api/settings/environment");
+        updateEnvironmentSettingsStatus(settings);
+        if (settingsRequired) await openSettingsDialog(settings);
+    } catch (error) {
+        showToast(error.message, true);
+    }
 }
 
 function showToast(message, isError = false) {
@@ -668,6 +793,95 @@ document.querySelector("#open-agents").addEventListener("click", () => {
 document.querySelector("#close-agents").addEventListener("click", () => agentsDialog.close());
 document.querySelector("#open-skills").addEventListener("click", openSkillsDialog);
 document.querySelector("#close-skills").addEventListener("click", () => skillsDialog.close());
+document.querySelector("#open-settings").addEventListener("click", openSettingsDialog);
+document.querySelector("#close-settings").addEventListener("click", () => {
+    if (settingsRequired) {
+        showToast("Complete the required settings before continuing.", true);
+        return;
+    }
+    settingsDialog.close();
+});
+settingsDialog.addEventListener("cancel", (event) => {
+    if (settingsRequired) event.preventDefault();
+});
+settingsDialog.addEventListener("click", (event) => {
+    if (event.target === settingsDialog && settingsRequired) {
+        event.preventDefault();
+    } else if (event.target === settingsDialog) {
+        settingsDialog.close();
+    }
+});
+settingsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    settingsValidationAttempted = true;
+    if (!validateSettingsForm()) {
+        settingsStatus.textContent = "Correct the highlighted settings before saving.";
+        showToast("Complete the required settings with valid values.", true);
+        settingsForm.querySelector(".is-invalid")?.focus();
+        return;
+    }
+    const settings = Object.fromEntries(
+        Array.from(settingsForm.querySelectorAll("[data-setting-name]"))
+            .map((input) => [input.dataset.settingName, input.value.trim()])
+            .filter(([, value]) => value),
+    );
+    if (!Object.keys(settings).length) {
+        showToast("Enter at least one setting to save.", true);
+        return;
+    }
+    const submitButton = settingsForm.querySelector('[type="submit"]');
+    submitButton.disabled = true;
+    try {
+        const status = await api("/api/settings/environment", {
+            method: "POST",
+            body: JSON.stringify({ settings }),
+        });
+        for (const input of settingsForm.querySelectorAll("[data-setting-name]")) {
+            input.value = "";
+        }
+        updateEnvironmentSettingsStatus(status);
+        settingsStatus.textContent = "Settings saved to /data/env.txt.";
+        showToast("Settings saved on the server.");
+        window.location.reload();
+    } catch (error) {
+        for (const [name, message] of Object.entries(error.fieldErrors || {})) {
+            const input = settingsForm.querySelector(`[data-setting-name="${name}"]`);
+            if (!input) continue;
+            input.classList.add("is-invalid");
+            input.setAttribute("aria-invalid", "true");
+            const row = input.closest("[data-setting-row]");
+            row.classList.add("has-error");
+            row.querySelector("[data-setting-status]").textContent = message;
+        }
+        showToast(error.message, true);
+    } finally {
+        submitButton.disabled = false;
+    }
+});
+settingsForm.querySelectorAll("[data-clear-setting]").forEach((clearButton) => {
+    clearButton.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const row = button.closest("[data-setting-row]");
+        const name = row.dataset.settingRow;
+        button.disabled = true;
+        try {
+            const status = await api(`/api/settings/environment/${encodeURIComponent(name)}`, {
+                method: "DELETE",
+            });
+            row.querySelector("[data-setting-name]").value = "";
+            updateEnvironmentSettingsStatus(status);
+            settingsStatus.textContent = `${name} removed from /data/env.txt.`;
+        } catch (error) {
+            showToast(error.message, true);
+            button.disabled = false;
+        }
+    });
+});
+settingsForm.querySelectorAll("[data-setting-name]").forEach((input) => {
+    input.addEventListener("input", () => {
+        if (settingsValidationAttempted) validateSettingsForm();
+    });
+});
 document.querySelector("#new-skill").addEventListener("click", () => {
     skillBrowser.hidden = true;
     skillCreateForm.hidden = false;
@@ -736,3 +950,9 @@ loadAgents();
 loadApps();
 loadSkills();
 updateSubmitState();
+if (new URLSearchParams(window.location.search).get("settings") === "google-api-key") {
+    openSettingsDialog();
+    window.history.replaceState({}, "", window.location.pathname);
+} else {
+    requireEnvironmentSettings();
+}

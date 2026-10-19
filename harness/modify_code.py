@@ -1,9 +1,9 @@
-from google.genai import Client,types
+from google.genai import types
 import os
-from dotenv import load_dotenv
+ 
+from google_api import get_google_client
 from rest import RestApi
-load_dotenv()
-gemini = Client()
+()
 
 
 class ModifyCodeFuncs:
@@ -14,7 +14,7 @@ class ModifyCodeFuncs:
     def generate_summary_for_code(self,filename:str):
         with open(filename,"r") as f:
             code = f.read()
-        res = gemini.models.generate_content(
+        res = get_google_client().models.generate_content(
             model=self.model,
             contents=f"""
             You are a code analysis tool.
@@ -47,7 +47,7 @@ class ModifyCodeFuncs:
             with open(os.path.join(self.folder_name, filename), "r") as f:
                 code = f.read()
             # Use Gemma model to determine if the file is relevant to the instruction
-            relevance_res = gemini.models.generate_content(
+            relevance_res = get_google_client().models.generate_content(
                 model=self.model,
                 contents=f"""
                 You are a code analysis tool.
@@ -78,7 +78,7 @@ class ModifyCodeFuncs:
                 print(res)
         return res
     def generate_task_for_each_file_based_on_summary(self,summary:str):
-        res = gemini.models.generate_content(
+        res = get_google_client().models.generate_content(
             model=self.model,
             contents=f"""
             You are a code analysis tool.

@@ -15,16 +15,17 @@ from skill_library import SKILLS_ROOT
 from code_gen import ModifyCode
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
-from gemini import combine_tool_and_model_res
+from gemini import combine_tool_and_model_res,respond_casually
 from google_api import get_google_api_key, get_google_client
 import subprocess
 from multi_agent import MultiAgent
 from context import addContext,getContext,getFiles
 from grpc_utils.client import createFiles,executeCommands
 from redis_utils.utils import RedisUtils
+from decision_model_utils.utils import ask_systemone
 redis_utils = RedisUtils()
 current_session_id = ContextVar("current_session_id", default=None)
-()
+
 db = DBOps() 
 tool_info = ''
 memory_context = '' 
@@ -380,44 +381,57 @@ async def run_plan_task(user_input, session_id=None):
     conversational_history = []
     responses = []
     try:
-        multi_agent = MultiAgent(user_input)
-        basic_steps = multi_agent.setup()
-        plan = multi_agent.generate_steps()
-        app_name = plan['app_name']
+        if(ask_systemone(user_input)):
+            multi_agent = MultiAgent(user_input)
+            basic_steps = multi_agent.setup()
+            plan = multi_agent.generate_steps()
+            app_name = plan['app_name']
 
-        if basic_steps:
-            for item in basic_steps['agents_to_create']:
-                description = (
-                    f"I want you to create an agent named {item['name']} for the following "
-                    f"task: {user_input}. Here is what it should be doing: {item['description']}"
-                )
+            if basic_steps:
+                for item in basic_steps['agents_to_create']:
+                    description = (
+                        f"I want you to create an agent named {item['name']} for the following "
+                        f"task: {user_input}. Here is what it should be doing: {item['description']}"
+                    )
+                    final_response, conversational_history = await _run_conversation_step(
+                        description, conversational_history, use_model_history=True
+                    )
+                    responses.append(final_response)
+
+                for skill in basic_steps['skills_to_create']:
+                    description = f"I want you to create a skill which does the following: {skill}"
+                    final_response, conversational_history = await _run_conversation_step(
+                        description, conversational_history, use_model_history=True
+                    )
+                    responses.append(final_response)
+
+            for step in plan['steps']:
+                description = step['step_description']
+                if getContext(app_name):
+                    conversational_history.append(AIMessage(content=getContext(app_name)))
+                    await _emit_log("AI", "Retrieving info regarding current state of app")
                 final_response, conversational_history = await _run_conversation_step(
                     description, conversational_history, use_model_history=True
                 )
                 responses.append(final_response)
 
-            for skill in basic_steps['skills_to_create']:
-                description = f"I want you to create a skill which does the following: {skill}"
-                final_response, conversational_history = await _run_conversation_step(
-                    description, conversational_history, use_model_history=True
-                )
-                responses.append(final_response)
+            return {
+                "app": app_name,
+                "message": "\n".join(responses),
+                "steps": len(plan['steps']),
+            }
+        else:
+            res = respond_casually(user_input)
+            if(isinstance(res,str)):
 
-        for step in plan['steps']:
-            description = step['step_description']
-            if getContext(app_name):
-                conversational_history.append(AIMessage(content=getContext(app_name)))
-                await _emit_log("AI", "Retrieving info regarding current state of app")
-            final_response, conversational_history = await _run_conversation_step(
-                description, conversational_history, use_model_history=True
-            )
-            responses.append(final_response)
-
-        return {
-            "app": app_name,
-            "message": "\n".join(responses),
-            "steps": len(plan['steps']),
-        }
+                await _emit_log("AI",res)
+            else:
+                res = ''
+            return {
+                "app":"None",
+                "message":res,
+                "steps":1
+            }
     finally:
         in_planning_mode = False
         current_session_id.reset(token)

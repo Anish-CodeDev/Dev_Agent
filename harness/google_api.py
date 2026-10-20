@@ -21,6 +21,11 @@ ENVIRONMENT_SETTINGS = (
     "DB_NAME",
     "COLLECTION_NAME",
 )
+REQUIRED_ENVIRONMENT_SETTINGS = (
+    "GOOGLE_API_KEY",
+    "URI",
+    "DB_NAME",
+)
 _google_api_key: ContextVar[str | None] = ContextVar("google_api_key", default=None)
 _google_client: ContextVar[genai.Client | None] = ContextVar("google_client", default=None)
 

@@ -148,9 +148,6 @@ function validateSetting(name, value) {
     if (name === "DB_NAME" && (value.length > 63 || /[\/\\."$*<>:|?\0]/.test(value))) {
         return "Enter a valid MongoDB database name (1–63 characters, without reserved characters).";
     }
-    if (name === "COLLECTION_NAME" && (value.length > 120 || value.startsWith("system."))) {
-        return "Enter a valid MongoDB collection name (up to 120 characters).";
-    }
     return "";
 }
 

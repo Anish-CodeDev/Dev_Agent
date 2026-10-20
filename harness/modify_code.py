@@ -1,9 +1,7 @@
 from google.genai import types
 import os
- 
+from grpc_utils.client import viewFiles
 from google_api import get_google_client
-
-
 
 class ModifyCodeFuncs:
     def __init__(self,instruction,folder_name):
@@ -11,8 +9,7 @@ class ModifyCodeFuncs:
         self.model = "gemini-3.1-flash-lite"
         self.folder_name = folder_name
     def generate_summary_for_code(self,filename:str):
-        with open(filename,"r") as f:
-            code = f.read()
+        code = viewFiles(self.folder_name,filename)
         res = get_google_client().models.generate_content(
             model=self.model,
             contents=f"""
@@ -39,12 +36,9 @@ class ModifyCodeFuncs:
     def compile_descriptions_of_all_files(self):
         res = []
         for filename in os.listdir(self.folder_name):
-            if not filename.endswith('.py'):
+            if filename == '.git':
                 continue
-            if filename == '.git' or filename == 'agent.py':
-                continue
-            with open(os.path.join(self.folder_name, filename), "r") as f:
-                code = f.read()
+            code = viewFiles(self.folder_name,filename)
             # Use Gemma model to determine if the file is relevant to the instruction
             relevance_res = get_google_client().models.generate_content(
                 model=self.model,

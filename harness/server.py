@@ -19,6 +19,7 @@ from skill_library import (
 )
 from google_api import (
     ENVIRONMENT_SETTINGS,
+    REQUIRED_ENVIRONMENT_SETTINGS,
     environment_settings_file_has_data,
     environment_settings_status,
     get_configured_google_api_key,
@@ -27,7 +28,7 @@ from google_api import (
     validate_environment_setting,
     use_google_api_key,
 )
-
+from mongodb import DBOps
 
 ROOT = Path(__file__).resolve().parent
 APPS_ROOT = ROOT / "apps"
@@ -109,7 +110,7 @@ def _save_environment_settings(payload):
     current_status = environment_settings_status()
     missing = {
         name: "This setting is required before the workspace can start."
-        for name in ENVIRONMENT_SETTINGS
+        for name in REQUIRED_ENVIRONMENT_SETTINGS
         if (
             not current_status[name]["saved"]
             or not current_status[name]["valid"]
@@ -202,8 +203,16 @@ def delete_google_api_key():
 
 
 def _known_apps():
+    obj = DBOps('data')
     contents = CONTEXT_FILE.read_text(encoding="utf-8") if CONTEXT_FILE.exists() else ""
-    data = json.loads(contents) if contents.strip() else {"apps": []}
+    if not contents:
+        contents = obj.find_documents({"type":"context"})
+        for doc in contents:
+            data = doc.get("data")
+        CONTEXT_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    else:
+        data = json.loads(contents) if contents.strip() else {"apps": []}
+    
     apps = {}
 
     for entry in data.get("apps", []):

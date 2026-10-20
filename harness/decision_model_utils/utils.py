@@ -1,10 +1,11 @@
 # Command to run to spinup model backend: strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --port 8080
 import requests
 
-def ask_systemone(state):
+def ask_systemone(state,question=None):
     low = 0.3
-    question = ("Does this message ask the assistant to perform a task such as "
-    "searching, creating, analyzing, running something, or multi-step work?")
+    if not question:
+        question = ("Does this message ask the assistant to perform a task such as "
+        "searching, creating, analyzing, running something, or multi-step work?")
     url = 'http://host.docker.internal:8080/v1/systemone'
     body = {
         "state":state,

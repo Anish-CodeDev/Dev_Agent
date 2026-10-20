@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
-
+from mongodb import DBOps
+import os
 SKILLS_ROOT = Path("/data/skills")
 BUNDLED_SKILLS_ROOT = Path(__file__).resolve().parent / "skills"
 
@@ -20,7 +21,14 @@ def ensure_skills_available():
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, target_path)
-
+        obj = DBOps('data')
+        res = obj.find_documents({"kind":"skills"})
+        for doc in res:
+            title = doc.get("title")
+            content = doc.get("content")
+            if not os.path.exists(f'/data/skills/{title}.md'):
+                with open(f'/data/skills/{title}.md','w') as f:
+                    f.write(content)
 
 def list_available_skills():
     ensure_skills_available()

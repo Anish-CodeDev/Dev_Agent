@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from contextvars import ContextVar
 from langgraph.graph import StateGraph,START,END
@@ -19,7 +20,7 @@ from gemini import combine_tool_and_model_res,respond_casually
 from google_api import get_google_api_key, get_google_client
 from multi_agent import MultiAgent
 from context import addContext,getContext,getFiles
-from grpc_utils.client import createFiles,executeCommands
+from grpc_utils.client import createFiles,executeCommands,viewFiles
 from redis_utils.utils import RedisUtils
 from decision_model_utils.utils import ask_systemone
 redis_utils = RedisUtils()
@@ -88,10 +89,6 @@ async def assign_task_to_agent(name:str,task:str):
     if res:
         db.update_document({'name':name},{'$set':{'status':'active'}})
         r = res[0]
-        print("System Prompt: ",r['action'])
-        print("User's request: ",task)
-        print("Agent name: ",name)
-        #info = give_info_for_coding_task(r['action'],task)
         res = get_google_client().models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=f"""
@@ -106,7 +103,7 @@ async def assign_task_to_agent(name:str,task:str):
                     "properties": {
                         "app_name": {
                             "type": "string"
-                        }
+                        },
                     },
                     "required": ["app_name"]
                 }
@@ -180,38 +177,7 @@ async def assign_task_to_agent(name:str,task:str):
     tool_info = "Task assigned to agent which does the following: " + conclusion
     return f"Task has been completed by the agent which does the following: {conclusion}"
             
-@tool
-def modify_code_tool(name:str,app_name:str,instruction:str):
-    """
-    This tool is used to modify the code
-    ARGS: name,app_name,instruction
-    """
-    global tool_info
-    res = db.find_documents({'name':name})
-    if res:
-        db.update_document({'name':name},{'$set':{'status':'active'}})
-        for r in res:
-            system_prompt = r['action']
-    
-    system_prompt += instruction
-    obj = ModifyCodeFuncs(system_prompt,'apps/'+app_name)
-    res = obj.generate_final_tasks()
-    
-    for r in res:
-        with open('apps/'+app_name+'/'+r['filename'],'r') as f:
-            code = f.read()
-        modify_obj = ModifyCode('python',r['task'])
-        code = modify_obj.modify_code_gen(code)
-        print("Press Y if the code update is fine: ")
-        print(code)
-        if input()=='Y':
-            with open('apps/'+app_name+'/'+r['filename'],'w') as f:
-                f.write(code)    
-        else:
-            print("Code not updated as per your wish")
-    db.update_document({'name':name},{'$set':{'status':'inactive'}})
-    tool_info = f"Code modification for agent '{name}' completed: {instruction}"
-    return f"Your {instruction} was to modify the code base has been completed"
+
 
 @tool
 def debug_code(name:str,error:str):

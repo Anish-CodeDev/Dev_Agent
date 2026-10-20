@@ -100,6 +100,7 @@ async function api(url, options = {}) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
         const error = new Error(data.error || data.detail || `Request failed (${response.status}).`);
+        error.status = response.status;
         error.fieldErrors = data.field_errors || {};
         throw error;
     }
@@ -336,6 +337,10 @@ function renderActiveChatSession() {
     log.setAttribute("role", "log");
     log.setAttribute("aria-live", "polite");
     for (const entry of activeChatSession.entries) {
+        if (entry.role === "Approval") {
+            log.append(renderCodeApproval(entry, activeChatSession));
+            continue;
+        }
         const line = document.createElement("div");
         line.className = "activity-log-entry";
         const roleName = entry.role.toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -704,6 +709,50 @@ function appendActivityLog(entry, session = activeChatSession) {
         return;
     }
 
+    if (entry.role === "Approval") {
+        const approval = JSON.parse(entry.content);
+        if (
+            !approval
+            || typeof approval.approval_id !== "string"
+            || typeof approval.file_name !== "string"
+            || typeof approval.original_code !== "string"
+            || typeof approval.proposed_code !== "string"
+        ) {
+            throw new Error("Received an invalid code review request.");
+        }
+        session.entries.push({
+            role: entry.role,
+            approval,
+            decision: null,
+            saved: false,
+            completed: false,
+            submitting: false,
+        });
+        if (session === activeChatSession) renderActiveChatSession();
+        return;
+    }
+    if (entry.role === "ApprovalResult") {
+        const result = JSON.parse(entry.content);
+        if (
+            !result
+            || typeof result.approval_id !== "string"
+            || typeof result.approved !== "boolean"
+            || typeof result.saved !== "boolean"
+        ) {
+            throw new Error("Received an invalid code review result.");
+        }
+        const approvalEntry = session.entries.find(
+            (item) => item.role === "Approval" && item.approval.approval_id === result.approval_id,
+        );
+        if (approvalEntry) {
+            approvalEntry.decision = result.approved;
+            approvalEntry.saved = result.saved;
+            approvalEntry.completed = true;
+        }
+        if (session === activeChatSession) renderActiveChatSession();
+        return;
+    }
+
     session.entries.push({ role: entry.role, content: entry.content });
     if (entry.role === "System") {
         if (entry.content === "Task started") session.status = "running";
@@ -711,6 +760,106 @@ function appendActivityLog(entry, session = activeChatSession) {
         if (entry.content === "Task failed") session.status = "error";
     }
     if (session === activeChatSession) renderActiveChatSession();
+}
+
+function renderCodeApproval(entry, session) {
+    const card = document.createElement("section");
+    card.className = "activity-log-entry role-approval";
+    const role = document.createElement("span");
+    role.className = "activity-log-role";
+    role.textContent = "REVIEW CODE CHANGE";
+    const filename = document.createElement("strong");
+    filename.className = "approval-filename";
+    filename.textContent = entry.approval.file_name;
+    const instructions = document.createElement("p");
+    instructions.className = "approval-description";
+    instructions.textContent = "Review the proposed file contents. The agent will not save this change until you approve it.";
+
+    const proposedDetails = document.createElement("details");
+    proposedDetails.className = "approval-code";
+    proposedDetails.open = true;
+    const proposedSummary = document.createElement("summary");
+    proposedSummary.textContent = "Proposed code";
+    const proposed = document.createElement("pre");
+    proposed.textContent = entry.approval.proposed_code;
+    proposedDetails.append(proposedSummary, proposed);
+
+    const originalDetails = document.createElement("details");
+    originalDetails.className = "approval-code";
+    const originalSummary = document.createElement("summary");
+    originalSummary.textContent = "Current code";
+    const original = document.createElement("pre");
+    original.textContent = entry.approval.original_code;
+    originalDetails.append(originalSummary, original);
+
+    card.append(role, filename, instructions, proposedDetails, originalDetails);
+    if (entry.completed) {
+        const status = document.createElement("p");
+        status.className = "approval-status";
+        status.textContent = entry.decision
+            ? entry.saved
+                ? "Approved — changes saved."
+                : "Approved, but the file could not be saved."
+            : "Declined — file left unchanged.";
+        card.append(status);
+        return card;
+    }
+    if (entry.decision !== null) {
+        const status = document.createElement("p");
+        status.className = "approval-status";
+        status.textContent = entry.decision
+            ? "Approved — applying changes…"
+            : "Declined — recording your decision…";
+        card.append(status);
+        return card;
+    }
+    if (entry.unavailable) {
+        const status = document.createElement("p");
+        status.className = "approval-status";
+        status.textContent = "This review request is no longer active. Check the project files to confirm their current contents.";
+        card.append(status);
+        return card;
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
+    const reject = document.createElement("button");
+    reject.type = "button";
+    reject.className = "secondary-button";
+    reject.textContent = "Decline";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "primary-button";
+    approve.textContent = "Approve and save";
+    for (const button of [reject, approve]) button.disabled = entry.submitting;
+    const submitDecision = async (approved) => {
+        entry.submitting = true;
+        renderActiveChatSession();
+        try {
+            const result = await api(
+                `/api/tasks/${encodeURIComponent(session.id)}/approvals/${encodeURIComponent(entry.approval.approval_id)}`,
+                { method: "POST", body: JSON.stringify({ approved }) },
+            );
+            entry.decision = result.approved;
+            showToast(approved ? "Code change approved." : "Code change declined.");
+        } catch (error) {
+            entry.submitting = false;
+            if (error.status === 404) entry.unavailable = true;
+            showToast(error.message, true);
+        }
+        if (session === activeChatSession) renderActiveChatSession();
+    };
+    reject.addEventListener("click", () => submitDecision(false));
+    approve.addEventListener("click", () => submitDecision(true));
+    actions.append(reject, approve);
+    if (entry.submitting) {
+        const waiting = document.createElement("p");
+        waiting.className = "approval-status";
+        waiting.textContent = "Sending your decision…";
+        card.append(waiting);
+    }
+    card.append(actions);
+    return card;
 }
 
 function connectTaskLogStream(session) {

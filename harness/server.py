@@ -580,14 +580,46 @@ async def stream_task_logs(
             status_code=400,
             detail="Session ID must be between 'session-01' and 'session-05'.",
         )
+    if last_event_id is not None and (
+        len(last_event_id.split("-")) != 2
+        or any(not part.isdigit() for part in last_event_id.split("-"))
+    ):
+        raise HTTPException(status_code=400, detail="Last-Event-ID must be a Redis stream ID.")
     return StreamingResponse(
-        redis_streams.stream(session_id,"0-0"),
+        redis_streams.stream(session_id,last_event_id or "0-0"),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@main.post("/api/tasks/{session_id}/approvals/{approval_id}")
+async def resolve_task_approval(
+    session_id: str,
+    approval_id: str,
+    request: Request,
+):
+    if session_id not in TASK_SESSION_IDS:
+        return JSONResponse(
+            {"error": "Session ID must be between 'session-01' and 'session-05'."},
+            status_code=400,
+        )
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    if not isinstance(payload, dict) or not isinstance(payload.get("approved"), bool):
+        return JSONResponse({"error": "Approval decision must be true or false."}, status_code=400)
+
+    approved = payload["approved"]
+    if not await redis_streams.resolve_approval(session_id, approval_id, approved):
+        return JSONResponse(
+            {"error": "This code review request is no longer active."},
+            status_code=404,
+        )
+    return {"approval_id": approval_id, "approved": approved}
 
 
 @main.post("/api/tasks")

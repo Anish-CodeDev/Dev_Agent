@@ -10,14 +10,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Annotated,Sequence,TypedDict
  
 from mongodb import DBOps
-from gemini import process_query_to_json,generate_skills,generate_tasks,list_available_skills
+from gemini import generate_skills,generate_tasks,list_available_skills
 from skill_library import SKILLS_ROOT
 from code_gen import ModifyCode
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
 from gemini import combine_tool_and_model_res,respond_casually
 from google_api import get_google_api_key, get_google_client
-import subprocess
 from multi_agent import MultiAgent
 from context import addContext,getContext,getFiles
 from grpc_utils.client import createFiles,executeCommands
@@ -77,45 +76,6 @@ def create_agent(name:str,action:str):
         tool_info = f"Agent '{name}' was successfully created with the task: {action}"
         return f"Agent {name} created with action {action}" 
 
-@tool
-def view_agent(query:str):
-    """
-    This tool is used to view all the agents created by the user.
-    DO NOT USE THIS TOOL IN THE USER WANTS TO CHANGE THE DESCRIPTION, NAME OR DELETE THE AGENT.
-    ARGS: query
-    """
-    global tool_info
-    query = process_query_to_json(query)
-    res = db.find_documents(query)
-    agent_list = list(res)
-    if agent_list:
-        for r in agent_list:
-            print("Name: ",r['name'])
-            print("Action: ",r['action'])
-            print("Status: ",r['status'])
-            print("----------------")
-        tool_info = f"Found {len(agent_list)} agent(s) matching your query."
-    else:
-        tool_info = "No agents were found matching your query."
-    return f"Agents were shown"
-@tool
-def modify_agent():
-    """
-    Opens a dialog box for managing sub-agents. Use this tool when the user wants to:
-    - View existing agents
-    - Rename an agent
-    - Change an agent's description
-    - Delete an agent
-
-    Use this tool regardless of whether the user specifies which agent to modify or not.
-    DO NOT use any other tool for these operations.
-    """
-    print("A dialogue box will pop up, please select the agent you want to modify there")
-    subprocess.run(["venv\Scripts\python.exe", "agent_viewer.py"])
-    print("Test")
-    global tool_info
-    tool_info = "Thank you for using the agent viewer.\n"
-    return "Interface will pop up"
 
 @tool
 async def assign_task_to_agent(name:str,task:str):
@@ -279,7 +239,7 @@ def gen_skills(topic:str):
     res = generate_skills(topic)
     tool_info = f"Skills for the topic '{topic}' have been successfully generated."
     return res
-tools = [create_agent,modify_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
+tools = [create_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
 
 def agent(state:AgentState):
     global memory_context

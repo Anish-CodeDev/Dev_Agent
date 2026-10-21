@@ -71,9 +71,14 @@ def _normalize_google_api_key(api_key: str | None) -> str | None:
 
 def _read_environment_settings():
     try:
+        settings = environment_settings_status()
         return {
-            **environment_settings_status(),
+            **settings,
             "file_has_data": environment_settings_file_has_data(),
+            "required_settings_configured": all(
+                settings[name]["saved"] and settings[name]["valid"]
+                for name in REQUIRED_ENVIRONMENT_SETTINGS
+            ),
         }
     except (OSError, UnicodeError):
         logger.exception("Unable to read application settings")
@@ -107,21 +112,6 @@ def _save_environment_settings(payload):
 
     if not normalized:
         return JSONResponse({"error": "Enter a value for at least one setting."}, status_code=400)
-    current_status = environment_settings_status()
-    missing = {
-        name: "This setting is required before the workspace can start."
-        for name in REQUIRED_ENVIRONMENT_SETTINGS
-        if (
-            not current_status[name]["saved"]
-            or not current_status[name]["valid"]
-        )
-        and name not in normalized
-    }
-    if missing:
-        return JSONResponse(
-            {"error": "Complete the required settings before saving.", "field_errors": missing},
-            status_code=400,
-        )
     try:
         save_environment_settings(normalized)
         return _read_environment_settings()

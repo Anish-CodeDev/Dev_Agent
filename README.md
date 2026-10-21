@@ -89,6 +89,7 @@ Everything the agents generate goes through a dedicated gRPC backend instead of 
 A dashboard to submit build tasks, browse generated projects, view directory trees and file previews, and chat about a project's implementation.
 
 - Choose **Plan** to use the multi-agent planning flow, or **Individual** to use the conversational agent flow (optionally preferring a specific agent).
+- When an agent proposes edits to an existing file, review the current and proposed code in the dashboard and approve or decline the change before it is saved.
 - Open a project to view its directory tree and file previews (including remote previews served through the backend's `ViewFile`).
 - Use the project-scoped chat to discuss a project's implementation. Chat history is kept for the current browser tab, and **chat does not directly edit files**; submit a task from the App builder to request code changes.
 - The project explorer derives each app's directory tree from its `files` paths in `harness/data/context.json`; nested paths such as `src/app.py` appear under their directories.
@@ -178,31 +179,9 @@ git clone https://github.com/Anish-CodeDev/Dev_Agent.git
 cd Dev_Agent
 ```
 
-### 2. Configure environment variables
 
-Create a `.env` file in `harness/` and populate it with the following fields:
 
-```env
-GOOGLE_API_KEY=""
-URI=""
-DB_NAME="dev-agent"
-COLLECTION_NAME="agents"
-```
-
-| Variable | Description |
-|---|---|
-| `GOOGLE_API_KEY` | Your Google API key for AI model access |
-| `URI` | Connection string of your MongoDB Atlas cluster |
-| `DB_NAME` | Name of the MongoDB Atlas database (default: `dev-agent`) |
-| `COLLECTION_NAME` | Atlas collection where agents are stored (default: `agents`) |
-
-> Never commit your `.env` file. Make sure it's listed in `.gitignore`.
-
-You can also add or replace the Google API key from **Settings** in the dashboard. A key entered there is stored server-side in `/data/env.txt` on the persistent volume; the browser does not retain or receive the key. This dashboard-saved key takes precedence over `GOOGLE_API_KEY` from the server environment.
-
-The dashboard Settings form can also save `URI`, `DB_NAME`, and `COLLECTION_NAME` in the same file. MongoDB uses the saved connection settings for subsequent operations.
-
-### 3. Build the gVisor-enabled kind node image
+### 2. Build the gVisor-enabled kind node image
 
 `backend/Dockerfile.gvisor-node` builds a node image on top of `kindest/node` with gVisor (`runsc`) installed:
 
@@ -214,7 +193,7 @@ cd ..
 
 > Pin the `kindest/node` tag to match your kind CLI version. Mismatches cause hard-to-debug cluster bring-up failures.
 
-### 4. Create the kind cluster
+### 3. Create the kind cluster
 
 `kind_config.yaml` points the nodes at the `kind-node-gvisor:latest` image and patches containerd at cluster-creation time to register the `runsc` runtime, so nothing needs hand-editing after boot.
 
@@ -258,6 +237,10 @@ kubectl apply -f server-deployment.yaml        # gRPC backend (runtimeClassName:
 kubectl apply -f service.yaml                  # gRPC backend Service
 kubectl apply -f harness-deployment.yaml       # harness + dashboard
 kubectl apply -f dev-agent-harness-service.yaml
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik-helm-chart/master/traefik/crds/ingressroute.yaml
+helm repo add traefik https://traefik.github.io/charts
+helm install traefik traefik/traefik -n traefik --create-namespace
+kubectl apply -f ingress.yaml
 ```
 
 > Don't use `kubectl apply -f .` here: the repo root also contains `kind_config.yaml`, which is a kind config rather than a Kubernetes resource.
@@ -285,7 +268,7 @@ kubectl port-forward -n traefik svc/traefik 8000:80
 
 Open `http://localhost:8000` to submit a build task and browse generated projects.
 
-> The backend must be running for file creation, command execution, and remote file previews.
+
 
 ***
 
@@ -335,16 +318,11 @@ Enter prompts like these in the web dashboard.
 
 ### Create a Subagent
 
-```
-# Example: spin up a backend-focused subagent
-I want you to create an agent which is focused on building flask backends.
-```
+Agents be created from the agents tab in the live dashboard
 
 ### Generate a Skill
 
-```
-I want you to create a skill focused on building backend agents.
-```
+Skills can be created from the skills tab in the live dashboard; skills are also dynamically created by the agent during runtime.
 
 ### Build an App
 

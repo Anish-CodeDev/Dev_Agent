@@ -271,7 +271,7 @@ def generate_skills(topic):
     generated_skill = json.loads(res.text)["skill"]
     with skill_path.open("x", encoding="utf-8") as output:
         output.write(generated_skill)
-    obj.update_user_data({"title":slug,"content":generated_skill})
+    obj.update_user_data({"title":f"{slug}_skill","content":generated_skill})
     return skill_path.name
 
 def generate_tasks(skill_file_path: str, task: str):

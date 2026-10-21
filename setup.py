@@ -435,6 +435,7 @@ def port_forward(kubectl, local_port):
     rc, _, _ = capture(kubectl + ["get", "svc", "traefik", "-n", "traefik"])
     if rc == 0:
         target = ["-n", "traefik", "svc/traefik", f"{local_port}:80"]
+        remote = "svc/traefik:80 (namespace traefik)"
     else:
         # Fallback: forward the harness service from dev-agent-harness-service.yaml directly.
         warn("svc/traefik not found in namespace 'traefik'; falling back to the harness service")
@@ -444,12 +445,42 @@ def port_forward(kubectl, local_port):
             return
         name, port = svc
         target = [f"svc/{name}", f"{local_port}:{port}"]
+        remote = f"svc/{name}:{port} (namespace default)"
 
-    print(f"\n    Open http://localhost:{local_port}   (Ctrl+C to stop the port-forward)\n")
+    cmd = kubectl + ["port-forward"] + target
+    print(f"    $ {' '.join(cmd)}", flush=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    announced = False
     try:
-        subprocess.run(kubectl + ["port-forward"] + target)
+        for line in proc.stdout:
+            print(f"    {line.rstrip()}", flush=True)
+            # kubectl prints "Forwarding from 127.0.0.1:<port> -> <port>" only once the tunnel is live.
+            if not announced and "Forwarding from" in line:
+                announced = True
+                print(
+                    "\n"
+                    "    ============================================================\n"
+                    f"    PORT-FORWARD ACTIVE: localhost:{local_port} -> {remote}\n"
+                    f"    Open http://localhost:{local_port}\n"
+                    "    Press Ctrl+C to stop.\n"
+                    "    ============================================================\n",
+                    flush=True,
+                )
+        proc.wait()
     except KeyboardInterrupt:
-        print("\nPort-forward stopped.")
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        print(f"\nPort-forward on localhost:{local_port} stopped.")
+        return
+
+    if not announced:
+        warn(f"Port-forward did not start (exit code {proc.returncode}). Is local port {local_port} already in use? "
+             "Try --local-port with a different port.")
+    else:
+        warn(f"Port-forward on localhost:{local_port} ended (exit code {proc.returncode}).")
 
 
 # --------------------------------------------------------------------------- main

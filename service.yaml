@@ -3,7 +3,7 @@ kind: Service
 metadata:
   name: dev-agent-service
 spec:
-  type: ClusterIP
+  clusterIP: None
   selector:
     app: dev-agent
   ports:

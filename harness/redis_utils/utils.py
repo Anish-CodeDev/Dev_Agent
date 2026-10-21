@@ -3,7 +3,6 @@ import redis.asyncio as redis
 from redis.backoff import ExponentialBackoff
 from redis.retry import Retry
 
-
 class RedisUtils:
     def __init__(self):
         self.retry = Retry(ExponentialBackoff(), retries=1)

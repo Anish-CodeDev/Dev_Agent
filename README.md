@@ -178,27 +178,9 @@ git clone https://github.com/Anish-CodeDev/Dev_Agent.git
 cd Dev_Agent
 ```
 
-### 2. Configure environment variables
 
-Create a `.env` file in `harness/` and populate it with the following fields:
 
-```env
-GOOGLE_API_KEY=""
-URI=""
-DB_NAME="dev-agent"
-COLLECTION_NAME="agents"
-```
-
-| Variable | Description |
-|---|---|
-| `GOOGLE_API_KEY` | Your Google API key for AI model access |
-| `URI` | Connection string of your MongoDB Atlas cluster |
-| `DB_NAME` | Name of the MongoDB Atlas database (default: `dev-agent`) |
-| `COLLECTION_NAME` | Atlas collection where agents are stored (default: `agents`) |
-
-> Never commit your `.env` file. Make sure it's listed in `.gitignore`.
-
-### 3. Build the gVisor-enabled kind node image
+### 2. Build the gVisor-enabled kind node image
 
 `backend/Dockerfile.gvisor-node` builds a node image on top of `kindest/node` with gVisor (`runsc`) installed:
 
@@ -210,7 +192,7 @@ cd ..
 
 > Pin the `kindest/node` tag to match your kind CLI version. Mismatches cause hard-to-debug cluster bring-up failures.
 
-### 4. Create the kind cluster
+### 3. Create the kind cluster
 
 `kind_config.yaml` points the nodes at the `kind-node-gvisor:latest` image and patches containerd at cluster-creation time to register the `runsc` runtime, so nothing needs hand-editing after boot.
 
@@ -220,7 +202,7 @@ kind create cluster --name my-cluster --config kind_config.yaml
 
 Once the cluster is up, complete [Configuring `runsc.toml`](#configuring-runsctoml) before continuing. **It is required.**
 
-### 5. Build and load the images
+### 4. Build and load the images
 
 Build the backend and the harness, then load both into the cluster:
 
@@ -241,7 +223,7 @@ kind load docker-image dev-agent-harness:latest --name my-cluster
 
 > For each image, the tag you build, the tag you load, and the `image:` in its manifest must all match, otherwise the pod will end up in `ImagePullBackOff`.
 
-### 6. Apply the manifests
+### 5. Apply the manifests
 
 Apply them in this order, so the runtime class, volume, Redis and backend are ready before the harness starts:
 
@@ -254,6 +236,10 @@ kubectl apply -f server-deployment.yaml        # gRPC backend (runtimeClassName:
 kubectl apply -f service.yaml                  # gRPC backend Service
 kubectl apply -f harness-deployment.yaml       # harness + dashboard
 kubectl apply -f dev-agent-harness-service.yaml
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik-helm-chart/master/traefik/crds/ingressroute.yaml
+helm repo add traefik https://traefik.github.io/charts
+helm install traefik traefik/traefik -n traefik --create-namespace
+kubectl apply -f ingress.yaml
 ```
 
 > Don't use `kubectl apply -f .` here: the repo root also contains `kind_config.yaml`, which is a kind config rather than a Kubernetes resource.
@@ -264,24 +250,28 @@ Check that all pods come up:
 kubectl get pods -o wide
 ```
 
-### 7. Verify the sandbox
+### 6. Verify the sandbox
 
 ```bash
 kubectl exec -it <backend-pod> -- dmesg | head -1
 # Should show a gVisor-specific fake kernel banner, not your real host kernel
 ```
-
+### 7. Run the decision-model server
+```bash
+pip install strands-decider
+strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --host 0.0.0.0 --port 8080
+```
 ### 8. Open the web workspace
 
 Forward the dashboard port to your machine and leave it running:
 
 ```bash
-kubectl port-forward deploy/dev-agent-harness-deployment 8000:8000
+kubectl port-forward -n traefik svc/traefik 8000:80
 ```
 
 Open `http://localhost:8000` to submit a build task and browse generated projects.
 
-> The backend must be running for file creation, command execution, and remote file previews.
+
 
 ***
 
@@ -327,20 +317,21 @@ Open `http://localhost:8000` to submit a build task and browse generated project
 
 ## Usage
 
+### Commands to be executed:
+```bash
+strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --host 0.0.0.0 --port 8080
+kubectl port-forward -n traefik svc/traefik
+```
+Access the dashboard at localhost:8000
 Enter prompts like these in the web dashboard.
 
 ### Create a Subagent
 
-```
-# Example: spin up a backend-focused subagent
-I want you to create an agent which is focused on building flask backends.
-```
+Agents be created from the agents tab in the live dashboard
 
 ### Generate a Skill
 
-```
-I want you to create a skill focused on building backend agents.
-```
+Skills can be created from the skills tab in the live dashboard; skills are also dynamically created by the agent during runtime.
 
 ### Build an App
 

@@ -4,7 +4,7 @@ metadata:
   name: dev-agent-harness-deployment
 spec:
   progressDeadlineSeconds: 180
-  replicas: 1
+  replicas: 5
   selector:
     matchLabels:
       app: dev-agent-harness

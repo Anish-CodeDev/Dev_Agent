@@ -77,15 +77,18 @@ func (s *AgentService) ExecuteCommands(ctx context.Context, in *agent.ExecuteCom
 		cmd += "\n"
 		data:= []byte(cmd)
 		
-		
+		if(in.LoadFromFile){
 		output, err:= runCommand(cmd)
-		
-		if _,err:= f.Write(data);err!=nil{
-			return err
-		}
-		
 		if err!=nil{
-			fmt.Println("Error: ",output)
+			fmt.Println("Error: ",err)
+			return err
+		}else{
+			fmt.Println("Output: ",output)
+			return nil
+		}
+		}
+		if _,err:= f.Write(data);err!=nil{
+			fmt.Println("Error: ",err)
 			return err
 		}
 	}

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from contextvars import ContextVar
 from langgraph.graph import StateGraph,START,END
@@ -8,24 +9,23 @@ from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Annotated,Sequence,TypedDict
-from dotenv import load_dotenv
+ 
 from mongodb import DBOps
-from gemini import process_query_to_json,generate_skills,generate_tasks,list_available_skills
+from gemini import generate_skills,generate_tasks,list_available_skills
 from skill_library import SKILLS_ROOT
 from code_gen import ModifyCode
 from modify_code import ModifyCodeFuncs
 from debug_code import Debug
-from google import genai
-from gemini import combine_tool_and_model_res
-import subprocess
+from gemini import combine_tool_and_model_res,respond_casually
+from google_api import get_google_api_key, get_google_client
 from multi_agent import MultiAgent
 from context import addContext,getContext,getFiles
-from grpc_utils.client import createFiles,executeCommands
+from grpc_utils.client import createFiles,executeCommands,viewFiles
 from redis_utils.utils import RedisUtils
+from decision_model_utils.utils import ask_systemone
 redis_utils = RedisUtils()
 current_session_id = ContextVar("current_session_id", default=None)
-load_dotenv()
-client = genai.Client()
+
 db = DBOps() 
 tool_info = ''
 memory_context = '' 
@@ -77,45 +77,6 @@ def create_agent(name:str,action:str):
         tool_info = f"Agent '{name}' was successfully created with the task: {action}"
         return f"Agent {name} created with action {action}" 
 
-@tool
-def view_agent(query:str):
-    """
-    This tool is used to view all the agents created by the user.
-    DO NOT USE THIS TOOL IN THE USER WANTS TO CHANGE THE DESCRIPTION, NAME OR DELETE THE AGENT.
-    ARGS: query
-    """
-    global tool_info
-    query = process_query_to_json(query)
-    res = db.find_documents(query)
-    agent_list = list(res)
-    if agent_list:
-        for r in agent_list:
-            print("Name: ",r['name'])
-            print("Action: ",r['action'])
-            print("Status: ",r['status'])
-            print("----------------")
-        tool_info = f"Found {len(agent_list)} agent(s) matching your query."
-    else:
-        tool_info = "No agents were found matching your query."
-    return f"Agents were shown"
-@tool
-def modify_agent():
-    """
-    Opens a dialog box for managing sub-agents. Use this tool when the user wants to:
-    - View existing agents
-    - Rename an agent
-    - Change an agent's description
-    - Delete an agent
-
-    Use this tool regardless of whether the user specifies which agent to modify or not.
-    DO NOT use any other tool for these operations.
-    """
-    print("A dialogue box will pop up, please select the agent you want to modify there")
-    subprocess.run(["venv\Scripts\python.exe", "agent_viewer.py"])
-    print("Test")
-    global tool_info
-    tool_info = "Thank you for using the agent viewer.\n"
-    return "Interface will pop up"
 
 @tool
 async def assign_task_to_agent(name:str,task:str):
@@ -128,11 +89,7 @@ async def assign_task_to_agent(name:str,task:str):
     if res:
         db.update_document({'name':name},{'$set':{'status':'active'}})
         r = res[0]
-        print("System Prompt: ",r['action'])
-        print("User's request: ",task)
-        print("Agent name: ",name)
-        #info = give_info_for_coding_task(r['action'],task)
-        res = client.models.generate_content(
+        res = get_google_client().models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=f"""
             You are given a task: {task}
@@ -146,7 +103,7 @@ async def assign_task_to_agent(name:str,task:str):
                     "properties": {
                         "app_name": {
                             "type": "string"
-                        }
+                        },
                     },
                     "required": ["app_name"]
                 }
@@ -162,7 +119,7 @@ async def assign_task_to_agent(name:str,task:str):
         print('came till here')
         print(skills)
         print("Going into res")
-        res = client.models.generate_content(
+        res = get_google_client().models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=f"""
             You are given a list of skills: {skills}
@@ -203,7 +160,7 @@ async def assign_task_to_agent(name:str,task:str):
         await _emit_log("AI", "Executing setup and running commands")
         status = executeCommands(commands,app_name,False)
         if status == "Failure":
-            await _emit_log("AI", "")
+            await _emit_log("AI", "Couldn't execute setup commands")
             return "Couldn't execute the setup and run commands... Please try again later"
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
@@ -220,38 +177,7 @@ async def assign_task_to_agent(name:str,task:str):
     tool_info = "Task assigned to agent which does the following: " + conclusion
     return f"Task has been completed by the agent which does the following: {conclusion}"
             
-@tool
-def modify_code_tool(name:str,app_name:str,instruction:str):
-    """
-    This tool is used to modify the code
-    ARGS: name,app_name,instruction
-    """
-    global tool_info
-    res = db.find_documents({'name':name})
-    if res:
-        db.update_document({'name':name},{'$set':{'status':'active'}})
-        for r in res:
-            system_prompt = r['action']
-    
-    system_prompt += instruction
-    obj = ModifyCodeFuncs(system_prompt,'apps/'+app_name)
-    res = obj.generate_final_tasks()
-    
-    for r in res:
-        with open('apps/'+app_name+'/'+r['filename'],'r') as f:
-            code = f.read()
-        modify_obj = ModifyCode('python',r['task'])
-        code = modify_obj.modify_code_gen(code)
-        print("Press Y if the code update is fine: ")
-        print(code)
-        if input()=='Y':
-            with open('apps/'+app_name+'/'+r['filename'],'w') as f:
-                f.write(code)    
-        else:
-            print("Code not updated as per your wish")
-    db.update_document({'name':name},{'$set':{'status':'inactive'}})
-    tool_info = f"Code modification for agent '{name}' completed: {instruction}"
-    return f"Your {instruction} was to modify the code base has been completed"
+
 
 @tool
 def debug_code(name:str,error:str):
@@ -279,15 +205,15 @@ def gen_skills(topic:str):
     res = generate_skills(topic)
     tool_info = f"Skills for the topic '{topic}' have been successfully generated."
     return res
-tools = [create_agent,modify_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
-
-llm = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite').bind_tools(tools)
-
+tools = [create_agent,assign_task_to_agent,debug_code,gen_skills]
 
 def agent(state:AgentState):
     global memory_context
     memory_note = f"\n\nThe following are key facts you remember about the user from previous turns:\n{memory_context}" if memory_context else ""
     instruction = SystemMessage(content=f"You are a helpful assistant, answer to your best ability. When a tool returns a message, relay that exact message to the user as your final response. Do not add any additional information.{memory_note}")
+    api_key = get_google_api_key()
+    model_options = {"google_api_key": api_key} if api_key else {}
+    llm = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite', **model_options).bind_tools(tools)
     res = llm.invoke([instruction]+state['messages'])
     
     return {'messages':[res]}
@@ -360,7 +286,9 @@ def run_project_chat(project_name, message, history):
             f"Project context: {project_context}"
         )
     )
-    chat_model = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite')
+    api_key = get_google_api_key()
+    model_options = {"google_api_key": api_key} if api_key else {}
+    chat_model = ChatGoogleGenerativeAI(model='gemini-3.1-flash-lite', **model_options)
     messages = [system_prompt]
     for entry in history:
         if entry["role"] == "user":
@@ -379,44 +307,57 @@ async def run_plan_task(user_input, session_id=None):
     conversational_history = []
     responses = []
     try:
-        multi_agent = MultiAgent(user_input)
-        basic_steps = multi_agent.setup()
-        plan = multi_agent.generate_steps()
-        app_name = plan['app_name']
+        if(ask_systemone(user_input)):
+            multi_agent = MultiAgent(user_input)
+            basic_steps = multi_agent.setup()
+            plan = multi_agent.generate_steps()
+            app_name = plan['app_name']
 
-        if basic_steps:
-            for item in basic_steps['agents_to_create']:
-                description = (
-                    f"I want you to create an agent named {item['name']} for the following "
-                    f"task: {user_input}. Here is what it should be doing: {item['description']}"
-                )
+            if basic_steps:
+                for item in basic_steps['agents_to_create']:
+                    description = (
+                        f"I want you to create an agent named {item['name']} for the following "
+                        f"task: {user_input}. Here is what it should be doing: {item['description']}"
+                    )
+                    final_response, conversational_history = await _run_conversation_step(
+                        description, conversational_history, use_model_history=True
+                    )
+                    responses.append(final_response)
+
+                for skill in basic_steps['skills_to_create']:
+                    description = f"I want you to create a skill which does the following: {skill}"
+                    final_response, conversational_history = await _run_conversation_step(
+                        description, conversational_history, use_model_history=True
+                    )
+                    responses.append(final_response)
+
+            for step in plan['steps']:
+                description = step['step_description']
+                if getContext(app_name):
+                    conversational_history.append(AIMessage(content=getContext(app_name)))
+                    await _emit_log("AI", "Retrieving info regarding current state of app")
                 final_response, conversational_history = await _run_conversation_step(
                     description, conversational_history, use_model_history=True
                 )
                 responses.append(final_response)
 
-            for skill in basic_steps['skills_to_create']:
-                description = f"I want you to create a skill which does the following: {skill}"
-                final_response, conversational_history = await _run_conversation_step(
-                    description, conversational_history, use_model_history=True
-                )
-                responses.append(final_response)
+            return {
+                "app": app_name,
+                "message": "\n".join(responses),
+                "steps": len(plan['steps']),
+            }
+        else:
+            res = respond_casually(user_input)
+            if(isinstance(res,str)):
 
-        for step in plan['steps']:
-            description = step['step_description']
-            if getContext(app_name):
-                conversational_history.append(AIMessage(content=getContext(app_name)))
-                await _emit_log("AI", "Retrieving info regarding current state of app")
-            final_response, conversational_history = await _run_conversation_step(
-                description, conversational_history, use_model_history=True
-            )
-            responses.append(final_response)
-
-        return {
-            "app": app_name,
-            "message": "\n".join(responses),
-            "steps": len(plan['steps']),
-        }
+                await _emit_log("AI",res)
+            else:
+                res = ''
+            return {
+                "app":"None",
+                "message":res,
+                "steps":1
+            }
     finally:
         in_planning_mode = False
         current_session_id.reset(token)

@@ -37,6 +37,10 @@
                     <span>Skills</span>
                     <span class="nav-count" id="skill-count">—</span>
                 </button>
+                <button class="nav-item" id="open-settings" type="button" aria-haspopup="dialog" aria-controls="settings-dialog">
+                    <span class="nav-icon" aria-hidden="true">⚙</span>
+                    <span>Settings</span>
+                </button>
             </nav>
 
             <div class="sidebar-section-heading">
@@ -61,10 +65,6 @@
                     <span class="breadcrumb-divider">/</span>
                     <strong id="breadcrumb-current">App builder</strong>
                 </div>
-                <div class="topbar-actions">
-                    <span class="server-status"><span class="connection-dot"></span> Agent runtime</span>
-                    <span class="avatar" aria-label="User">A</span>
-                </div>
             </header>
 
             <div class="workspace-content" id="builder">
@@ -82,6 +82,10 @@
                                 <h2 id="activity-title">Chat with Dev Agent</h2>
                             </div>
                             <span class="activity-indicator" id="activity-indicator"><span></span> IDLE</span>
+                        </div>
+                        <div class="chat-session-bar">
+                            <div class="chat-session-list" id="chat-session-list" role="group" aria-label="Chat sessions"></div>
+                            <button class="icon-button chat-session-add" id="add-chat-session" type="button" aria-label="Create new chat session" title="Create new chat session">+</button>
                         </div>
                         <div class="activity-body" id="activity-body">
                             <div class="activity-empty">
@@ -202,6 +206,43 @@
                     <span id="generate-skill-label">Generate skill</span>
                     <span class="button-arrow" aria-hidden="true">↗</span>
                 </button>
+            </div>
+        </form>
+    </dialog>
+    <dialog class="agent-dialog settings-dialog" id="settings-dialog" aria-labelledby="settings-dialog-title">
+        <div class="agent-dialog-header">
+            <div>
+                <span class="section-kicker">ENVIRONMENT</span>
+                <h2 id="settings-dialog-title">Settings</h2>
+                <p>Configure the services used by your development workspace.</p>
+            </div>
+            <button class="icon-button dialog-close" id="close-settings" type="button" aria-label="Close settings">×</button>
+        </div>
+        <form id="environment-settings-form" class="settings-form">
+            <p class="settings-note">Values are stored on the server at <code>/data/env.txt</code> and are never returned to the browser. Save one or more fields at a time; required settings must be configured before continuing. Leave a field blank to keep its current value.</p>
+            <div class="settings-fields">
+                <div class="settings-field" data-setting-row="GOOGLE_API_KEY">
+                    <label class="settings-label" for="setting-google-api-key">GOOGLE_API_KEY</label>
+                    <input class="settings-input" id="setting-google-api-key" type="password" data-setting-name="GOOGLE_API_KEY" autocomplete="off" spellcheck="false" maxlength="512" placeholder="Enter Google API key">
+                    <span class="settings-status" data-setting-status></span>
+                    <button class="secondary-button" data-clear-setting type="button">Clear saved value</button>
+                </div>
+                <div class="settings-field" data-setting-row="URI">
+                    <label class="settings-label" for="setting-uri">URI</label>
+                    <input class="settings-input" id="setting-uri" type="password" data-setting-name="URI" autocomplete="off" spellcheck="false" maxlength="4096" placeholder="Enter MongoDB connection URI">
+                    <span class="settings-status" data-setting-status></span>
+                    <button class="secondary-button" data-clear-setting type="button">Clear saved value</button>
+                </div>
+                <div class="settings-field" data-setting-row="DB_NAME">
+                    <label class="settings-label" for="setting-db-name">DB_NAME</label>
+                    <input class="settings-input" id="setting-db-name" type="text" data-setting-name="DB_NAME" autocomplete="off" maxlength="4096" placeholder="Enter MongoDB database name">
+                    <span class="settings-status" data-setting-status></span>
+                    <button class="secondary-button" data-clear-setting type="button">Clear saved value</button>
+                </div>
+            </div>
+            <div class="settings-actions">
+                <span class="settings-status" id="settings-status" role="status"></span>
+                <button class="primary-button" type="submit">Save settings</button>
             </div>
         </form>
     </dialog>

@@ -7,6 +7,8 @@ const projectCardList = document.querySelector("#project-card-list");
 const activityBody = document.querySelector("#activity-body");
 const activityTitle = document.querySelector("#activity-title");
 const activityIndicator = document.querySelector("#activity-indicator");
+const chatSessionList = document.querySelector("#chat-session-list");
+const addChatSessionButton = document.querySelector("#add-chat-session");
 const toast = document.querySelector("#toast");
 const agentsDialog = document.querySelector("#agents-dialog");
 const agentChoiceList = document.querySelector("#agent-choice-list");
@@ -19,30 +21,217 @@ const skillTopic = document.querySelector("#skill-topic");
 const skillPreviewTitle = document.querySelector("#skill-preview-title");
 const skillPreviewDescription = document.querySelector("#skill-preview-description");
 const skillContent = document.querySelector("#skill-content code");
+const settingsDialog = document.querySelector("#settings-dialog");
+const settingsForm = document.querySelector("#environment-settings-form");
+const settingsStatus = document.querySelector("#settings-status");
 
 let apps = [];
 let agents = [];
 let skills = [];
 let toastTimer;
-let taskRunning = false;
 let skillGenerating = false;
-let activeLogContainer = null;
-let activeLogProgress = null;
-let taskLogStream = null;
-let activeSubmittedTask = "";
-let initialUserLogHidden = false;
-const taskSessionId = "session-01";
+const chatSessionStorageKey = "dev-agent-chat-sessions";
+const maxChatSessions = 5;
+
+function sessionNumber(id) {
+    const match = id.match(/(?:^session-0([1-5])$|-(0[1-5])$)/);
+    return match ? Number(match[1] || match[2]) : null;
+}
+
+function isNamespacedSessionId(id) {
+    return /^session-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-0[1-5]$/i.test(id);
+}
+
+function createSessionId(number) {
+    return `session-${crypto.randomUUID()}-${String(number).padStart(2, "0")}`;
+}
+
+try {
+    localStorage.removeItem("dev-agent-google-api-key");
+} catch (error) {
+    showToast("Could not remove the old browser-stored Google API key.", true);
+}
+
+function createChatSession(id) {
+    return {
+        id,
+        entries: [],
+        running: false,
+        status: "idle",
+        pendingTask: "",
+        initialUserLogHidden: false,
+        stream: null,
+    };
+}
+
+function loadChatSessions() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(chatSessionStorageKey) || "{}");
+        if (!Array.isArray(stored.sessionIds)) {
+            const firstSessionId = createSessionId(1);
+            return { sessions: [createChatSession(firstSessionId)], activeSessionId: firstSessionId };
+        }
+
+        const firstPreviousId = stored.sessionIds.find(
+            (id) => typeof id === "string" && sessionNumber(id) === 1,
+        );
+        const firstSessionId = firstPreviousId && isNamespacedSessionId(firstPreviousId)
+            ? firstPreviousId
+            : createSessionId(1);
+        const ids = [firstSessionId];
+        const migratedIds = new Map([["session-01", firstSessionId]]);
+        if (firstPreviousId) migratedIds.set(firstPreviousId, firstSessionId);
+        const usedNumbers = new Set([1]);
+        for (const previousId of stored.sessionIds) {
+            if (typeof previousId !== "string" || migratedIds.has(previousId)) continue;
+            if (ids.length >= maxChatSessions) break;
+            const previousNumber = sessionNumber(previousId);
+            const number = previousNumber && !usedNumbers.has(previousNumber)
+                ? previousNumber
+                : Array.from({ length: maxChatSessions }, (_, index) => index + 1)
+                    .find((candidate) => !usedNumbers.has(candidate));
+            if (!number) continue;
+            const id = isNamespacedSessionId(previousId) && number === previousNumber
+                ? previousId
+                : createSessionId(number);
+            ids.push(id);
+            usedNumbers.add(number);
+            migratedIds.set(previousId, id);
+        }
+        const sessions = ids.map(createChatSession);
+        const activeSessionId = migratedIds.get(stored.activeSessionId) || firstSessionId;
+        return { sessions, activeSessionId };
+    } catch (error) {
+        showToast("Could not load saved chat sessions. Starting a new session.", true);
+        const firstSessionId = createSessionId(1);
+        return { sessions: [createChatSession(firstSessionId)], activeSessionId: firstSessionId };
+    }
+}
+
+const savedChatSessions = loadChatSessions();
+let chatSessions = savedChatSessions.sessions;
+let activeChatSession = chatSessions.find((session) => session.id === savedChatSessions.activeSessionId)
+    || chatSessions[0];
 
 async function api(url, options = {}) {
+    const { headers: suppliedHeaders = {}, ...requestOptions } = options;
+    const headers = { "Content-Type": "application/json", ...suppliedHeaders };
     const response = await fetch(url, {
-        headers: { "Content-Type": "application/json" },
-        ...options,
+        ...requestOptions,
+        headers,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(data.error || `Request failed (${response.status}).`);
+        const error = new Error(data.error || data.detail || `Request failed (${response.status}).`);
+        error.status = response.status;
+        error.fieldErrors = data.field_errors || {};
+        throw error;
     }
     return data;
+}
+
+function updateEnvironmentSettingsStatus(settings) {
+    environmentSettingsState = settings;
+    settingsRequired = !settings.required_settings_configured;
+    document.querySelector("#close-settings").disabled = settingsRequired;
+    for (const row of settingsForm.querySelectorAll("[data-setting-row]")) {
+        const name = row.dataset.settingRow;
+        const status = settings[name];
+        row.querySelector("[data-setting-status]").textContent = status.saved
+            ? status.valid
+                ? "Saved in /data/env.txt"
+                : "Saved value is invalid"
+            : status.configured
+                ? "Using server environment"
+                : "Not configured";
+        row.querySelector("[data-clear-setting]").disabled = !status.saved;
+    }
+}
+
+let environmentSettingsState = {};
+let settingsRequired = false;
+let settingsValidationAttempted = false;
+
+function validateSetting(name, value) {
+    if (!value) return "";
+    if (value.length > (name === "GOOGLE_API_KEY" ? 512 : 4096)) {
+        return "Value is too long.";
+    }
+    if (/[\r\n]/.test(value)) {
+        return "Line breaks are not allowed.";
+    }
+    if (name === "URI" && !/^mongodb(?:\+srv)?:\/\/[^/\s?#]+(?:[/?#][^\s]*)?$/.test(value)) {
+        return "Enter a valid MongoDB URI starting with mongodb:// or mongodb+srv://.";
+    }
+    if (name === "DB_NAME" && (value.length > 63 || /[\/\\."$*<>:|?\0]/.test(value))) {
+        return "Enter a valid MongoDB database name (1–63 characters, without reserved characters).";
+    }
+    return "";
+}
+
+function validateSettingsForm() {
+    let isValid = true;
+    for (const input of settingsForm.querySelectorAll("[data-setting-name]")) {
+        const name = input.dataset.settingName;
+        const error = validateSetting(name, input.value.trim());
+        const row = input.closest("[data-setting-row]");
+        const status = row.querySelector("[data-setting-status]");
+        input.classList.toggle("is-invalid", Boolean(error));
+        input.setAttribute("aria-invalid", String(Boolean(error)));
+        row.classList.toggle("has-error", Boolean(error));
+        if (error) {
+            status.textContent = error;
+            isValid = false;
+        } else {
+            const savedStatus = environmentSettingsState[name];
+            status.textContent = savedStatus?.saved
+                ? savedStatus.valid
+                    ? "Saved in /data/env.txt"
+                    : "Saved value is invalid"
+                : savedStatus?.configured
+                    ? "Using server environment"
+                    : "Not configured";
+        }
+    }
+    return isValid;
+}
+
+async function openSettingsDialog(initialStatus = null) {
+    for (const input of settingsForm.querySelectorAll("[data-setting-name]")) {
+        input.value = "";
+        input.classList.remove("is-invalid");
+        input.removeAttribute("aria-invalid");
+    }
+    settingsValidationAttempted = false;
+    settingsRequired = false;
+    document.querySelector("#close-settings").disabled = settingsRequired;
+    settingsStatus.textContent = "Checking server settings…";
+    settingsDialog.showModal();
+    settingsForm.querySelector("[data-setting-name]").focus();
+    try {
+        updateEnvironmentSettingsStatus(
+            initialStatus || await api("/api/settings/environment"),
+        );
+        settingsStatus.textContent = settingsRequired
+            ? "Enter your configuration before continuing."
+            : "";
+        if (settingsValidationAttempted) validateSettingsForm();
+    } catch (error) {
+        settingsRequired = false;
+        document.querySelector("#close-settings").disabled = false;
+        settingsStatus.textContent = "Could not load server settings.";
+        showToast(error.message, true);
+    }
+}
+
+async function requireEnvironmentSettings() {
+    try {
+        const settings = await api("/api/settings/environment");
+        updateEnvironmentSettingsStatus(settings);
+        if (settingsRequired) await openSettingsDialog(settings);
+    } catch (error) {
+        showToast(error.message, true);
+    }
 }
 
 function showToast(message, isError = false) {
@@ -54,9 +243,164 @@ function showToast(message, isError = false) {
 }
 
 function updateSubmitState() {
-    submitButton.disabled = taskRunning || !taskInput.value.trim();
+    submitButton.disabled = activeChatSession.running || !taskInput.value.trim();
+    document.querySelector("#submit-label").textContent = activeChatSession.running ? "Sending…" : "Send";
     document.querySelector("#char-count").textContent = `${taskInput.value.length.toLocaleString()} / 10,000`;
     document.querySelector("#agent-picker").hidden = modeSelect.value !== "individual";
+}
+
+function saveChatSessions() {
+    try {
+        localStorage.setItem(chatSessionStorageKey, JSON.stringify({
+            sessionIds: chatSessions.map((session) => session.id),
+            activeSessionId: activeChatSession.id,
+        }));
+    } catch (error) {
+        showToast("Could not save chat sessions in this browser.", true);
+    }
+}
+
+function renderChatSessions() {
+    chatSessionList.replaceChildren();
+    chatSessions.forEach((session) => {
+        const number = sessionNumber(session.id);
+        const tab = document.createElement("div");
+        tab.className = "chat-session-tab";
+        tab.classList.toggle("is-active", session === activeChatSession);
+        const button = document.createElement("button");
+        button.className = "chat-session-button";
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(session === activeChatSession));
+        button.textContent = session.running ? "Working…" : "Chat";
+        button.setAttribute("aria-label", session.running ? "Chat is working" : "Select chat");
+        button.title = session.running ? "Chat is working" : "Switch chat";
+        button.addEventListener("click", () => selectChatSession(session));
+        tab.append(button);
+        if (number !== 1) {
+            const closeButton = document.createElement("button");
+            closeButton.className = "chat-session-close";
+            closeButton.type = "button";
+            closeButton.textContent = "×";
+            closeButton.setAttribute("aria-label", "Close chat");
+            closeButton.title = session.running
+                ? "Wait for this session to finish before closing it"
+                : "Close chat";
+            closeButton.disabled = session.running;
+            closeButton.addEventListener("click", () => closeChatSession(session));
+            tab.append(closeButton);
+        }
+        chatSessionList.append(tab);
+    });
+    addChatSessionButton.disabled = chatSessions.length >= maxChatSessions;
+    addChatSessionButton.title = addChatSessionButton.disabled
+        ? "Maximum of 5 chat sessions reached"
+        : `Create a new chat session (${chatSessions.length}/${maxChatSessions})`;
+    addChatSessionButton.setAttribute(
+        "aria-label",
+        addChatSessionButton.disabled
+            ? "Maximum of 5 chat sessions reached"
+            : "Create new chat session",
+    );
+}
+
+function renderActivityIndicator() {
+    const labels = {
+        idle: "IDLE",
+        running: "RUNNING",
+        done: "COMPLETE",
+        error: "ERROR",
+    };
+    const status = activeChatSession.status;
+    activityIndicator.className = `activity-indicator${status === "running" || status === "done" ? ` ${status}` : ""}`;
+    activityIndicator.replaceChildren(
+        document.createElement("span"),
+        document.createTextNode(labels[status]),
+    );
+    activityTitle.textContent = {
+        idle: "Chat with Dev Agent",
+        running: "Your agent is at work",
+        done: "Build complete",
+        error: "Build needs attention",
+    }[status];
+}
+
+function renderActiveChatSession() {
+    activityBody.replaceChildren();
+    renderActivityIndicator();
+    if (!activeChatSession.entries.length) {
+        const empty = document.createElement("div");
+        empty.className = "activity-empty";
+        const glyph = document.createElement("span");
+        glyph.className = "empty-glyph";
+        glyph.setAttribute("aria-hidden", "true");
+        glyph.textContent = "⌁";
+        const message = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = "Your conversation starts here";
+        const description = document.createElement("p");
+        description.textContent = "Describe what you want to build. Your agent’s replies and progress will appear here.";
+        message.append(title, description);
+        empty.append(glyph, message);
+        activityBody.append(empty);
+        return;
+    }
+
+    const log = document.createElement("div");
+    log.className = "activity-log";
+    log.setAttribute("role", "log");
+    log.setAttribute("aria-live", "polite");
+    for (const entry of activeChatSession.entries) {
+        const line = document.createElement("div");
+        line.className = "activity-log-entry";
+        const roleName = entry.role.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        line.classList.add(`role-${roleName || "system"}`);
+        const role = document.createElement("span");
+        role.className = "activity-log-role";
+        role.textContent = entry.role;
+        const content = document.createElement("div");
+        content.className = "activity-log-content";
+        content.textContent = entry.content;
+        line.append(role, content);
+        log.append(line);
+    }
+    activityBody.append(log);
+    activityBody.scrollTop = activityBody.scrollHeight;
+}
+
+function selectChatSession(session) {
+    activeChatSession = session;
+    renderChatSessions();
+    renderActiveChatSession();
+    updateSubmitState();
+    saveChatSessions();
+}
+
+function closeChatSession(session) {
+    if (sessionNumber(session.id) === 1 || session.running) return;
+    const index = chatSessions.indexOf(session);
+    if (index < 0) return;
+    session.stream?.close();
+    chatSessions.splice(index, 1);
+    if (activeChatSession === session) {
+        activeChatSession = chatSessions[Math.min(index, chatSessions.length - 1)];
+    }
+    renderChatSessions();
+    renderActiveChatSession();
+    updateSubmitState();
+    saveChatSessions();
+}
+
+function addChatSession() {
+    if (chatSessions.length >= maxChatSessions) return;
+    const number = Array.from({ length: maxChatSessions }, (_, index) => index + 1)
+        .find((candidate) => !chatSessions.some((session) => sessionNumber(session.id) === candidate));
+    if (!number) return;
+    const id = createSessionId(number);
+    const session = createChatSession(id);
+    chatSessions.push(session);
+    selectChatSession(session);
+    connectTaskLogStream(session);
+    taskInput.focus();
 }
 
 function openAgentDialogFromQuery() {
@@ -71,6 +415,7 @@ function openAgentDialogFromQuery() {
 }
 
 function selectApp(appName) {
+    if (appName === "None") return;
     window.location.assign(`/projects/${encodeURIComponent(appName)}`);
 }
 
@@ -357,101 +702,46 @@ async function loadApps(preferredApp = "") {
     }
 }
 
-function showBuildResult(message, isError = false) {
-    appendActivityLog({ role: "AI", content: message });
-    activeLogProgress?.remove();
-    activeLogProgress = null;
-    if (isError) {
-        activityTitle.textContent = "Build needs attention";
-        activityIndicator.className = "activity-indicator";
-        activityIndicator.replaceChildren(
-            document.createElement("span"),
-            document.createTextNode("ERROR"),
-        );
-    }
-}
-
-function appendActivityLog(entry) {
+function appendActivityLog(entry, session = activeChatSession) {
     if (
         !entry
         || typeof entry.role !== "string"
         || typeof entry.content !== "string"
-        || !activeLogContainer
     ) {
         showToast("Received an invalid build log entry.", true);
         return;
     }
     if (
         entry.role === "User"
-        && entry.content === activeSubmittedTask
-        && !initialUserLogHidden
+        && entry.content === session.pendingTask
+        && !session.initialUserLogHidden
     ) {
-        initialUserLogHidden = true;
+        session.initialUserLogHidden = true;
         return;
     }
 
-    activeLogProgress?.remove();
-    activeLogProgress = null;
-    const line = document.createElement("div");
-    line.className = "activity-log-entry";
-    const roleName = entry.role.toLowerCase().replace(/[^a-z0-9_-]/g, "");
-    line.classList.add(`role-${roleName || "system"}`);
-    const role = document.createElement("span");
-    role.className = "activity-log-role";
-    role.textContent = entry.role;
-    const content = document.createElement("div");
-    content.className = "activity-log-content";
-    content.textContent = entry.content;
-    line.append(role, content);
-    activeLogContainer.append(line);
-    activityBody.scrollTop = activityBody.scrollHeight;
-
-    if (entry.event === "started") {
-        activityTitle.textContent = "Your agent is at work";
-        activityIndicator.className = "activity-indicator running";
-        activityIndicator.replaceChildren(
-            document.createElement("span"),
-            document.createTextNode("RUNNING"),
-        );
-    } else if (entry.event === "complete") {
-        activityTitle.textContent = "Build complete";
-        activityIndicator.className = "activity-indicator done";
-        activityIndicator.replaceChildren(
-            document.createElement("span"),
-            document.createTextNode("COMPLETE"),
-        );
-    } else if (entry.event === "failed") {
-        activityTitle.textContent = "Build needs attention";
-        activityIndicator.className = "activity-indicator";
-        activityIndicator.replaceChildren(
-            document.createElement("span"),
-            document.createTextNode("ERROR"),
-        );
+    session.entries.push({ role: entry.role, content: entry.content });
+    if (entry.role === "System") {
+        if (entry.content === "Task started") session.status = "running";
+        if (entry.content === "Task complete") session.status = "done";
+        if (entry.content === "Task failed") session.status = "error";
     }
+    if (session === activeChatSession) renderActiveChatSession();
 }
 
-function connectTaskLogStream() {
-    activeLogContainer = document.createElement("div");
-    activeLogContainer.className = "activity-log";
-    activeLogContainer.setAttribute("role", "log");
-    activeLogContainer.setAttribute("aria-live", "polite");
-    activeLogProgress = document.createElement("div");
-    activeLogProgress.className = "activity-empty";
-    activeLogProgress.textContent = "Loading the Redis log stream…";
-    activityBody.replaceChildren(activeLogProgress, activeLogContainer);
-
-    taskLogStream = new EventSource(
-        `/api/tasks/${encodeURIComponent(taskSessionId)}/logs`,
+function connectTaskLogStream(session) {
+    session.stream = new EventSource(
+        `/api/tasks/${encodeURIComponent(session.id)}/logs`,
     );
-    taskLogStream.onmessage = (message) => {
+    session.stream.onmessage = (message) => {
         try {
-            appendActivityLog(JSON.parse(message.data));
+            appendActivityLog(JSON.parse(message.data), session);
         } catch {
             showToast("Could not read a build log entry.", true);
         }
     };
-    taskLogStream.onerror = () => {
-        if (taskLogStream.readyState === EventSource.CLOSED) {
+    session.stream.onerror = () => {
+        if (session.stream.readyState === EventSource.CLOSED) {
             showToast("The Redis log stream connection closed.", true);
         }
     };
@@ -460,35 +750,43 @@ function connectTaskLogStream() {
 document.querySelector("#task-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const task = taskInput.value.trim();
-    if (!task || taskRunning) return;
+    const session = activeChatSession;
+    if (!task || session.running) return;
 
-    taskRunning = true;
-    activeSubmittedTask = task;
-    initialUserLogHidden = false;
-    appendActivityLog({ role: "User", content: task });
+    session.running = true;
+    session.status = "running";
+    session.pendingTask = task;
+    session.initialUserLogHidden = false;
+    appendActivityLog({ role: "User", content: task }, session);
+    renderChatSessions();
     updateSubmitState();
-    document.querySelector("#submit-label").textContent = "Sending…";
     taskInput.value = "";
     updateSubmitState();
     try {
-        const result = await api("/api/tasks", {
+        const result = await api("http://localhost:8000/api/tasks", {
             method: "POST",
             body: JSON.stringify({
                 task,
                 mode: modeSelect.value,
                 agent: agentSelect.value || null,
-                session_id: taskSessionId,
+                session_id: session.id,
             }),
         });
-        showBuildResult(result.message);
+        appendActivityLog({ role: "AI", content: result.message }, session);
+        session.status = "done";
+        renderChatSessions();
+        if (session === activeChatSession) renderActiveChatSession();
         showToast("Build finished successfully.");
         await loadApps(result.app);
     } catch (error) {
-        showBuildResult(error.message, true);
+        appendActivityLog({ role: "AI", content: error.message }, session);
+        session.status = "error";
+        renderChatSessions();
+        if (session === activeChatSession) renderActiveChatSession();
         showToast(error.message, true);
     } finally {
-        taskRunning = false;
-        document.querySelector("#submit-label").textContent = "Send";
+        session.running = false;
+        renderChatSessions();
         updateSubmitState();
     }
 });
@@ -512,6 +810,95 @@ document.querySelector("#open-agents").addEventListener("click", () => {
 document.querySelector("#close-agents").addEventListener("click", () => agentsDialog.close());
 document.querySelector("#open-skills").addEventListener("click", openSkillsDialog);
 document.querySelector("#close-skills").addEventListener("click", () => skillsDialog.close());
+document.querySelector("#open-settings").addEventListener("click", openSettingsDialog);
+document.querySelector("#close-settings").addEventListener("click", () => {
+    if (settingsRequired) {
+        showToast("Complete the required settings before continuing.", true);
+        return;
+    }
+    settingsDialog.close();
+});
+settingsDialog.addEventListener("cancel", (event) => {
+    if (settingsRequired) event.preventDefault();
+});
+settingsDialog.addEventListener("click", (event) => {
+    if (event.target === settingsDialog && settingsRequired) {
+        event.preventDefault();
+    } else if (event.target === settingsDialog) {
+        settingsDialog.close();
+    }
+});
+settingsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    settingsValidationAttempted = true;
+    if (!validateSettingsForm()) {
+        settingsStatus.textContent = "Correct the highlighted settings before saving.";
+        showToast("Fix the highlighted settings before saving.", true);
+        settingsForm.querySelector(".is-invalid")?.focus();
+        return;
+    }
+    const settings = Object.fromEntries(
+        Array.from(settingsForm.querySelectorAll("[data-setting-name]"))
+            .map((input) => [input.dataset.settingName, input.value.trim()])
+            .filter(([, value]) => value),
+    );
+    if (!Object.keys(settings).length) {
+        showToast("Enter at least one setting to save.", true);
+        return;
+    }
+    const submitButton = settingsForm.querySelector('[type="submit"]');
+    submitButton.disabled = true;
+    try {
+        const status = await api("/api/settings/environment", {
+            method: "POST",
+            body: JSON.stringify({ settings }),
+        });
+        for (const input of settingsForm.querySelectorAll("[data-setting-name]")) {
+            input.value = "";
+        }
+        updateEnvironmentSettingsStatus(status);
+        settingsStatus.textContent = "Settings saved to /data/env.txt.";
+        showToast("Settings saved on the server.");
+        window.location.reload();
+    } catch (error) {
+        for (const [name, message] of Object.entries(error.fieldErrors || {})) {
+            const input = settingsForm.querySelector(`[data-setting-name="${name}"]`);
+            if (!input) continue;
+            input.classList.add("is-invalid");
+            input.setAttribute("aria-invalid", "true");
+            const row = input.closest("[data-setting-row]");
+            row.classList.add("has-error");
+            row.querySelector("[data-setting-status]").textContent = message;
+        }
+        showToast(error.message, true);
+    } finally {
+        submitButton.disabled = false;
+    }
+});
+settingsForm.querySelectorAll("[data-clear-setting]").forEach((clearButton) => {
+    clearButton.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const row = button.closest("[data-setting-row]");
+        const name = row.dataset.settingRow;
+        button.disabled = true;
+        try {
+            const status = await api(`/api/settings/environment/${encodeURIComponent(name)}`, {
+                method: "DELETE",
+            });
+            row.querySelector("[data-setting-name]").value = "";
+            updateEnvironmentSettingsStatus(status);
+            settingsStatus.textContent = `${name} removed from /data/env.txt.`;
+        } catch (error) {
+            showToast(error.message, true);
+            button.disabled = false;
+        }
+    });
+});
+settingsForm.querySelectorAll("[data-setting-name]").forEach((input) => {
+    input.addEventListener("input", () => {
+        if (settingsValidationAttempted) validateSettingsForm();
+    });
+});
 document.querySelector("#new-skill").addEventListener("click", () => {
     skillBrowser.hidden = true;
     skillCreateForm.hidden = false;
@@ -534,7 +921,7 @@ skillCreateForm.addEventListener("submit", async (event) => {
     submit.disabled = true;
     document.querySelector("#generate-skill-label").textContent = "Generating…";
     try {
-        const skill = await api("/api/skills", {
+        const skill = await api("http://localhost:8000/api/skills", {
             method: "POST",
             body: JSON.stringify({ topic }),
         });
@@ -571,8 +958,18 @@ agentsDialog.addEventListener("click", (event) => {
 });
 document.querySelector("#refresh-apps").addEventListener("click", () => loadApps());
 
-connectTaskLogStream();
+addChatSessionButton.addEventListener("click", addChatSession);
+renderChatSessions();
+renderActiveChatSession();
+saveChatSessions();
+for (const session of chatSessions) connectTaskLogStream(session);
 loadAgents();
 loadApps();
 loadSkills();
 updateSubmitState();
+if (new URLSearchParams(window.location.search).get("settings") === "google-api-key") {
+    openSettingsDialog();
+    window.history.replaceState({}, "", window.location.pathname);
+} else {
+    requireEnvironmentSettings();
+}

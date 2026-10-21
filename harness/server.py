@@ -1,8 +1,9 @@
 import json
 import logging
 import asyncio
+from uuid import UUID
 from pathlib import Path, PurePosixPath
-
+from decision_model_utils.utils import ask_systemone
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -17,7 +18,18 @@ from skill_library import (
     list_available_skills,
     read_skill_content,
 )
-
+from google_api import (
+    ENVIRONMENT_SETTINGS,
+    REQUIRED_ENVIRONMENT_SETTINGS,
+    environment_settings_file_has_data,
+    environment_settings_status,
+    get_configured_google_api_key,
+    remove_environment_setting,
+    save_environment_settings,
+    validate_environment_setting,
+    use_google_api_key,
+)
+from mongodb import DBOps
 
 ROOT = Path(__file__).resolve().parent
 APPS_ROOT = ROOT / "apps"
@@ -27,7 +39,33 @@ main = FastAPI(title="Dev Agent", version="1.0.0")
 main.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 logger = logging.getLogger(__name__)
 redis_streams = RedisUtils()
-TASK_SESSION_ID = "session-01"
+TASK_SESSION_IDS = frozenset(f"session-{number:02d}" for number in range(1, 6))
+DEFAULT_TASK_SESSION_ID = "session-01"
+
+
+def _is_valid_task_session_id(session_id):
+    if not isinstance(session_id, str):
+        return False
+    if session_id in TASK_SESSION_IDS:
+        return True
+    if not session_id.startswith("session-"):
+        return False
+    namespace, separator, number = session_id.rpartition("-")
+    if not separator or number not in {f"{value:02d}" for value in range(1, 6)}:
+        return False
+    try:
+        return str(UUID(namespace.removeprefix("session-"))) == namespace.removeprefix("session-")
+    except ValueError:
+        return False
+
+
+@main.middleware("http")
+async def disable_response_caching(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 def _get_db():
@@ -36,9 +74,152 @@ def _get_db():
     return DBOps()
 
 
+def _normalize_google_api_key(api_key: str | None) -> str | None:
+    if api_key is None:
+        return None
+    api_key = api_key.strip()
+    if len(api_key) > 512 or "\n" in api_key or "\r" in api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Google API keys must be 512 characters or fewer and cannot contain line breaks.",
+        )
+    return api_key or None
+
+
+def _read_environment_settings():
+    try:
+        settings = environment_settings_status()
+        return {
+            **settings,
+            "file_has_data": environment_settings_file_has_data(),
+            "required_settings_configured": all(
+                settings[name]["saved"] and settings[name]["valid"]
+                for name in REQUIRED_ENVIRONMENT_SETTINGS
+            ),
+        }
+    except (OSError, UnicodeError):
+        logger.exception("Unable to read application settings")
+        return JSONResponse(
+            {"error": "Unable to read application settings."},
+            status_code=500,
+        )
+
+
+def _save_environment_settings(payload):
+    settings = payload.get("settings")
+    if not isinstance(settings, dict) or not settings:
+        return JSONResponse({"error": "Provide at least one setting to save."}, status_code=400)
+
+    normalized = {}
+    for name, value in settings.items():
+        if name not in ENVIRONMENT_SETTINGS:
+            return JSONResponse({"error": f"Unsupported setting: {name}."}, status_code=400)
+        if not isinstance(value, str):
+            return JSONResponse({"error": f"{name} must be a string."}, status_code=400)
+        value = value.strip()
+        if not value:
+            continue
+        error = validate_environment_setting(name, value)
+        if error:
+            return JSONResponse(
+                {"error": "Correct the highlighted settings.", "field_errors": {name: error}},
+                status_code=400,
+            )
+        normalized[name] = value
+
+    if not normalized:
+        return JSONResponse({"error": "Enter a value for at least one setting."}, status_code=400)
+    try:
+        save_environment_settings(normalized)
+        return _read_environment_settings()
+    except (OSError, UnicodeError):
+        logger.exception("Unable to save application settings")
+        return JSONResponse(
+            {"error": "Unable to save settings. Check server storage permissions."},
+            status_code=500,
+        )
+
+
+def _delete_environment_setting(name: str):
+    if name not in ENVIRONMENT_SETTINGS:
+        return JSONResponse({"error": f"Unsupported setting: {name}."}, status_code=404)
+    try:
+        remove_environment_setting(name)
+        return _read_environment_settings()
+    except (OSError, UnicodeError):
+        logger.exception("Unable to remove setting %s", name)
+        return JSONResponse(
+            {"error": "Unable to remove the setting. Check server storage permissions."},
+            status_code=500,
+        )
+
+
+@main.get("/api/settings/environment")
+def environment_settings():
+    return _read_environment_settings()
+
+
+@main.post("/api/settings/environment")
+async def update_environment_settings(request: Request):
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    return _save_environment_settings(payload)
+
+
+@main.delete("/api/settings/environment/{name}")
+def delete_environment_setting(name: str):
+    return _delete_environment_setting(name)
+
+
+@main.get("/api/settings/google-api-key")
+def google_api_key_status():
+    settings = _read_environment_settings()
+    if isinstance(settings, JSONResponse):
+        return settings
+    return settings["GOOGLE_API_KEY"]
+
+
+@main.post("/api/settings/google-api-key")
+async def update_google_api_key(request: Request):
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
+    raw_api_key = payload.get("api_key")
+    if not isinstance(raw_api_key, str):
+        return JSONResponse({"error": "Google API key must be a string."}, status_code=400)
+    try:
+        api_key = _normalize_google_api_key(raw_api_key)
+    except HTTPException as error:
+        return JSONResponse({"error": error.detail}, status_code=error.status_code)
+    if not api_key:
+        return JSONResponse({"error": "Enter a Google API key before saving."}, status_code=400)
+
+    return _save_environment_settings({"settings": {"GOOGLE_API_KEY": api_key}})
+
+
+@main.delete("/api/settings/google-api-key")
+def delete_google_api_key():
+    return _delete_environment_setting("GOOGLE_API_KEY")
+
+
 def _known_apps():
+    obj = DBOps('data')
     contents = CONTEXT_FILE.read_text(encoding="utf-8") if CONTEXT_FILE.exists() else ""
-    data = json.loads(contents) if contents.strip() else {"apps": []}
+    if not contents:
+        contents = obj.find_documents({"type":"context"})
+        for doc in contents:
+            data = doc.get("data")
+        CONTEXT_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    else:
+        data = json.loads(contents) if contents.strip() else {"apps": []}
+    
     apps = {}
 
     for entry in data.get("apps", []):
@@ -229,7 +410,9 @@ async def _generate_skill(topic):
 
 
 @main.post("/api/skills")
-async def create_skill(request: Request):
+async def create_skill(
+    request: Request,
+):
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -244,7 +427,8 @@ async def create_skill(request: Request):
         return JSONResponse({"error": "Skill topics must be 300 characters or fewer."}, status_code=400)
 
     try:
-        filename = await _generate_skill(topic.strip())
+        with use_google_api_key(get_configured_google_api_key()):
+            filename = await _generate_skill(topic.strip())
         path = _skill_path(filename)
         if path is None:
             raise RuntimeError("The generated skill file could not be found.")
@@ -302,7 +486,10 @@ async def _execute_project_chat(app_name, message, history):
 
 
 @main.post("/api/apps/{app_name}/chat")
-async def project_chat(request: Request, app_name: str):
+async def project_chat(
+    request: Request,
+    app_name: str,
+):
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -331,11 +518,12 @@ async def project_chat(request: Request, app_name: str):
     try:
         if not any(app["name"] == app_name for app in _known_apps()):
             return JSONResponse({"error": "Project not found."}, status_code=404)
-        reply = await _execute_project_chat(
-            app_name,
-            message.strip(),
-            history,
-        )
+        with use_google_api_key(get_configured_google_api_key()):
+            reply = await _execute_project_chat(
+                app_name,
+                message.strip(),
+                history,
+            )
         return {"reply": reply}
     except Exception:
         logger.exception("Project chat failed for %s", app_name)
@@ -403,8 +591,18 @@ async def stream_task_logs(
     session_id: str,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ):
+    if not _is_valid_task_session_id(session_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Session ID must be a valid chat session ID.",
+        )
+    if last_event_id is not None and (
+        len(last_event_id.split("-")) != 2
+        or any(not part.isdigit() for part in last_event_id.split("-"))
+    ):
+        raise HTTPException(status_code=400, detail="Last-Event-ID must be a Redis stream ID.")
     return StreamingResponse(
-        redis_streams.stream(session_id,"0-0"),
+        redis_streams.stream(session_id,last_event_id or "0-0"),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -414,7 +612,9 @@ async def stream_task_logs(
 
 
 @main.post("/api/tasks")
-async def create_task(request: Request):
+async def create_task(
+    request: Request,
+):
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -439,23 +639,27 @@ async def create_task(request: Request):
 
     session_id = payload.get("session_id")
     if session_id is None:
-        session_id = TASK_SESSION_ID
-    if session_id != TASK_SESSION_ID:
+        session_id = DEFAULT_TASK_SESSION_ID
+    if not _is_valid_task_session_id(session_id):
         return JSONResponse(
-            {"error": f"Session ID must be '{TASK_SESSION_ID}'."},
+            {"error": "Session ID must be a valid chat session ID."},
             status_code=400,
         )
 
     try:
-        await redis_streams.emit(session_id, "System", "Task started")
+        if(ask_systemone(task.strip())):
+            await redis_streams.emit(session_id, "System", "Task started")
         await redis_streams.emit(session_id, "User", task.strip())
-        result = await _execute_task(
-            task.strip(),
-            mode,
-            agent_name.strip() if agent_name else None,
-            session_id,
-        )
-        await redis_streams.emit(session_id, "System", "Task complete")
+        with use_google_api_key(get_configured_google_api_key()):
+            result = await _execute_task(
+                task.strip(),
+                mode,
+                agent_name.strip() if agent_name else None,
+                session_id,
+            )
+        if(result['app']!='None'):
+
+            await redis_streams.emit(session_id, "System", "Task complete")
         return JSONResponse(result, status_code=201)
     except Exception:
         logger.exception("Task execution failed")

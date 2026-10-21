@@ -203,7 +203,7 @@ kind create cluster --name my-cluster --config kind_config.yaml
 
 Once the cluster is up, complete [Configuring `runsc.toml`](#configuring-runsctoml) before continuing. **It is required.**
 
-### 5. Build and load the images
+### 4. Build and load the images
 
 Build the backend and the harness, then load both into the cluster:
 
@@ -224,7 +224,7 @@ kind load docker-image dev-agent-harness:latest --name my-cluster
 
 > For each image, the tag you build, the tag you load, and the `image:` in its manifest must all match, otherwise the pod will end up in `ImagePullBackOff`.
 
-### 6. Apply the manifests
+### 5. Apply the manifests
 
 Apply them in this order, so the runtime class, volume, Redis and backend are ready before the harness starts:
 
@@ -251,13 +251,17 @@ Check that all pods come up:
 kubectl get pods -o wide
 ```
 
-### 7. Verify the sandbox
+### 6. Verify the sandbox
 
 ```bash
 kubectl exec -it <backend-pod> -- dmesg | head -1
 # Should show a gVisor-specific fake kernel banner, not your real host kernel
 ```
-
+### 7. Run the decision-model server
+```bash
+pip install strands-decider
+strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --port 8080
+```
 ### 8. Open the web workspace
 
 Forward the dashboard port to your machine and leave it running:

@@ -89,7 +89,6 @@ Everything the agents generate goes through a dedicated gRPC backend instead of 
 A dashboard to submit build tasks, browse generated projects, view directory trees and file previews, and chat about a project's implementation.
 
 - Choose **Plan** to use the multi-agent planning flow, or **Individual** to use the conversational agent flow (optionally preferring a specific agent).
-- When an agent proposes edits to an existing file, review the current and proposed code in the dashboard and approve or decline the change before it is saved.
 - Open a project to view its directory tree and file previews (including remote previews served through the backend's `ViewFile`).
 - Use the project-scoped chat to discuss a project's implementation. Chat history is kept for the current browser tab, and **chat does not directly edit files**; submit a task from the App builder to request code changes.
 - The project explorer derives each app's directory tree from its `files` paths in `harness/data/context.json`; nested paths such as `src/app.py` appear under their directories.
@@ -260,7 +259,7 @@ kubectl exec -it <backend-pod> -- dmesg | head -1
 ### 7. Run the decision-model server
 ```bash
 pip install strands-decider
-strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --port 8080
+strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --host 0.0.0.0 --port 8080
 ```
 ### 8. Open the web workspace
 
@@ -318,6 +317,12 @@ Open `http://localhost:8000` to submit a build task and browse generated project
 
 ## Usage
 
+### Commands to be executed:
+```bash
+strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --host 0.0.0.0 --port 8080
+kubectl port-forward -n traefik svc/traefik
+```
+Access the dashboard at localhost:8000
 Enter prompts like these in the web dashboard.
 
 ### Create a Subagent

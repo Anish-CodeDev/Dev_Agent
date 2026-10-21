@@ -857,19 +857,6 @@ textarea:focus-visible {
     font-size: 10px;
 }
 
-.avatar {
-    display: grid;
-    width: 27px;
-    height: 27px;
-    place-items: center;
-    border: 1px solid #45404f;
-    border-radius: 50%;
-    background: linear-gradient(145deg, #383044, #25232c);
-    color: #d9c8ff;
-    font-size: 10px;
-    font-weight: 600;
-}
-
 .workspace-content {
     display: grid;
     width: min(1520px, 100%);
@@ -1991,8 +1978,7 @@ select option {
     line-height: 1.6;
 }
 
-.project-file-badge,
-.chat-context-badge {
+.project-file-badge {
     flex: 0 0 auto;
     padding: 5px 7px;
     border: 1px solid #393440;
@@ -2005,7 +1991,7 @@ select option {
 .project-workspace {
     display: grid;
     min-height: min(690px, calc(100vh - 190px));
-    grid-template-columns: minmax(190px, 0.78fr) minmax(260px, 1.15fr) minmax(280px, 1fr);
+    grid-template-columns: minmax(220px, 0.78fr) minmax(0, 2fr);
     gap: 13px;
     max-width: 1600px;
     margin: 0 auto;
@@ -2013,8 +1999,7 @@ select option {
 }
 
 .project-explorer,
-.project-preview,
-.project-chat {
+.project-preview {
     display: flex;
     min-width: 0;
     min-height: 0;
@@ -2063,167 +2048,9 @@ select option {
     font-size: 10px;
 }
 
-.chat-context-badge {
-    border-color: #344336;
-    color: #9ccca8;
-    font-size: 7px;
-}
-
-.chat-messages {
-    display: flex;
-    min-height: 0;
-    flex: 1;
-    flex-direction: column;
-    gap: 10px;
-    overflow-y: auto;
-    padding: 12px;
-}
-
-.chat-welcome {
-    display: flex;
-    min-height: 180px;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 19px;
-    text-align: center;
-}
-
-.chat-welcome-icon {
-    display: grid;
-    width: 35px;
-    height: 35px;
-    margin-bottom: 12px;
-    place-items: center;
-    border: 1px solid #493c5b;
-    border-radius: 10px;
-    background: #282231;
-    color: #c4a8f6;
-    font-size: 17px;
-}
-
-.chat-welcome strong {
-    color: #d7d4de;
-    font-size: 11px;
-}
-
-.chat-welcome p {
-    max-width: 250px;
-    margin: 7px 0 0;
-    color: #858691;
-    font-size: 9px;
-    line-height: 1.6;
-}
-
-.chat-message {
-    max-width: 96%;
-    padding: 9px 10px;
-    border: 1px solid #30313b;
-    border-radius: 7px;
-    background: #1b1c24;
-}
-
-.chat-message.user-message {
-    align-self: flex-end;
-    border-color: #493d5e;
-    background: #24202e;
-}
-
-.chat-message-label {
-    display: block;
-    margin-bottom: 5px;
-    color: #a892d3;
-    font-family: var(--mono);
-    font-size: 7px;
-    letter-spacing: 0.7px;
-}
-
-.chat-message p {
-    margin: 0;
-    color: #cfced7;
-    font-size: 10px;
-    line-height: 1.65;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
-
-.chat-message.pending-message p {
-    color: #9992a8;
-}
-
-.chat-message.chat-error {
-    border-color: #754348;
-}
-
-.project-chat-form {
-    display: grid;
-    gap: 8px;
-    padding: 10px;
-    border-top: 1px solid #2b2c35;
-    background: rgba(17, 18, 23, 0.45);
-}
-
-.project-chat-form textarea {
-    width: 100%;
-    min-height: 55px;
-    max-height: 125px;
-    resize: vertical;
-    padding: 8px;
-    border: 1px solid #34353f;
-    border-radius: 6px;
-    outline: none;
-    background: #15161c;
-    color: #e1dfe8;
-    font: inherit;
-    font-size: 10px;
-    line-height: 1.5;
-}
-
-.project-chat-form textarea:focus {
-    border-color: #8068ae;
-}
-
-.project-chat-form textarea::placeholder {
-    color: #71727d;
-}
-
-.chat-form-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.chat-form-footer > span {
-    color: #70717c;
-    font-size: 8px;
-}
-
-.chat-form-footer .primary-button {
-    min-height: 29px;
-    gap: 8px;
-    padding: 0 9px;
-    font-size: 9px;
-}
-
-.visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    clip-path: inset(50%);
-}
-
 @media (max-width: 1050px) {
     .project-workspace {
         grid-template-columns: minmax(190px, 0.75fr) minmax(260px, 1fr);
-    }
-
-    .project-chat {
-        min-height: 400px;
-        grid-column: 1 / -1;
     }
 }
 
@@ -2247,8 +2074,4 @@ select option {
         min-height: 280px;
     }
 
-    .project-chat {
-        min-height: 420px;
-        grid-column: auto;
-    }
 }

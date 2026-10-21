@@ -109,7 +109,7 @@ async function api(url, options = {}) {
 
 function updateEnvironmentSettingsStatus(settings) {
     environmentSettingsState = settings;
-    settingsRequired = !settings.file_has_data;
+    settingsRequired = !settings.required_settings_configured;
     document.querySelector("#close-settings").disabled = settingsRequired;
     for (const row of settingsForm.querySelectorAll("[data-setting-row]")) {
         const name = row.dataset.settingRow;
@@ -130,12 +130,7 @@ let settingsRequired = false;
 let settingsValidationAttempted = false;
 
 function validateSetting(name, value) {
-    if (!value) {
-        const savedStatus = environmentSettingsState[name];
-        return savedStatus?.saved && savedStatus.valid
-            ? ""
-            : "This setting is required.";
-    }
+    if (!value) return "";
     if (value.length > (name === "GOOGLE_API_KEY" ? 512 : 4096)) {
         return "Value is too long.";
     }
@@ -963,7 +958,7 @@ settingsForm.addEventListener("submit", async (event) => {
     settingsValidationAttempted = true;
     if (!validateSettingsForm()) {
         settingsStatus.textContent = "Correct the highlighted settings before saving.";
-        showToast("Complete the required settings with valid values.", true);
+        showToast("Fix the highlighted settings before saving.", true);
         settingsForm.querySelector(".is-invalid")?.focus();
         return;
     }

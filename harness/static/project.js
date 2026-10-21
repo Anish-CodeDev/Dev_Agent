@@ -4,16 +4,10 @@ const previewTitle = document.querySelector("#project-preview-title");
 const previewLanguage = document.querySelector("#project-preview-language");
 const codePreview = document.querySelector("#project-code");
 const projectList = document.querySelector("#project-list");
-const chatMessages = document.querySelector("#chat-messages");
-const chatInput = document.querySelector("#project-chat-input");
-const sendButton = document.querySelector("#send-project-chat");
 const toast = document.querySelector("#toast");
-const historyKey = `dev-agent-project-chat:${projectName}`;
 
 let selectedFileButton = null;
-let chatHistory = loadHistory();
 let toastTimer;
-let chatBusy = false;
 
 try {
     localStorage.removeItem("dev-agent-google-api-key");
@@ -39,42 +33,6 @@ function showToast(message, isError = false) {
     toast.classList.add("visible");
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 3600);
-}
-
-function loadHistory() {
-    try {
-        const saved = JSON.parse(sessionStorage.getItem(historyKey) || "[]");
-        if (!Array.isArray(saved)) return [];
-        return saved.filter((item) => (
-            item && ["user", "assistant"].includes(item.role) && typeof item.content === "string"
-        )).slice(-20);
-    } catch {
-        return [];
-    }
-}
-
-function saveHistory() {
-    sessionStorage.setItem(historyKey, JSON.stringify(chatHistory.slice(-20)));
-}
-
-function renderChatHistory() {
-    if (!chatHistory.length) return;
-    chatMessages.replaceChildren();
-    for (const message of chatHistory) appendChatMessage(message.role, message.content);
-}
-
-function appendChatMessage(role, content, className = "") {
-    const message = document.createElement("article");
-    message.className = `chat-message ${role === "user" ? "user-message" : "assistant-message"} ${className}`.trim();
-    const label = document.createElement("span");
-    label.className = "chat-message-label";
-    label.textContent = role === "user" ? "YOU" : "PROJECT ASSISTANT";
-    const body = document.createElement("p");
-    body.textContent = content;
-    message.append(label, body);
-    chatMessages.append(message);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    return message;
 }
 
 function renderProjects(apps) {
@@ -199,57 +157,5 @@ async function loadFile(path) {
     }
 }
 
-function updateChatSubmit() {
-    sendButton.disabled = chatBusy || !chatInput.value.trim();
-}
-
-document.querySelector("#project-chat-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const message = chatInput.value.trim();
-    if (!message || chatBusy) return;
-
-    chatBusy = true;
-    updateChatSubmit();
-    chatHistory.push({ role: "user", content: message });
-    appendChatMessage("user", message);
-    chatInput.value = "";
-    const pending = appendChatMessage("assistant", "Thinking…", "pending-message");
-
-    try {
-        const response = await api(`/api/apps/${encodeURIComponent(projectName)}/chat`, {
-            method: "POST",
-            body: JSON.stringify({
-                message,
-                history: chatHistory.slice(0, -1).slice(-20),
-            }),
-        });
-        pending.remove();
-        const reply = typeof response.reply === "string"
-            ? response.reply
-            : JSON.stringify(response.reply);
-        chatHistory.push({ role: "assistant", content: reply });
-        chatHistory = chatHistory.slice(-20);
-        saveHistory();
-        appendChatMessage("assistant", reply);
-    } catch (error) {
-        pending.remove();
-        appendChatMessage("assistant", error.message, "chat-error");
-        showToast(error.message, true);
-    } finally {
-        chatBusy = false;
-        updateChatSubmit();
-        chatInput.focus();
-    }
-});
-
-chatInput.addEventListener("input", updateChatSubmit);
-chatInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        document.querySelector("#project-chat-form").requestSubmit();
-    }
-});
 document.querySelector("#refresh-project-files").addEventListener("click", loadProjectTree);
-renderChatHistory();
 loadProjectTree();
-updateChatSubmit();

@@ -160,7 +160,7 @@ async def assign_task_to_agent(name:str,task:str):
         await _emit_log("AI", "Executing setup and running commands")
         status = executeCommands(commands,app_name,False)
         if status == "Failure":
-            await _emit_log("AI", "")
+            await _emit_log("AI", "Couldn't execute setup commands")
             return "Couldn't execute the setup and run commands... Please try again later"
     else:
         tool_info = "Task not assigned to agent because agent wasn't found"
@@ -205,7 +205,7 @@ def gen_skills(topic:str):
     res = generate_skills(topic)
     tool_info = f"Skills for the topic '{topic}' have been successfully generated."
     return res
-tools = [create_agent,assign_task_to_agent,modify_code_tool,debug_code,gen_skills]
+tools = [create_agent,assign_task_to_agent,debug_code,gen_skills]
 
 def agent(state:AgentState):
     global memory_context

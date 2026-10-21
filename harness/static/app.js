@@ -9,7 +9,6 @@ const activityTitle = document.querySelector("#activity-title");
 const activityIndicator = document.querySelector("#activity-indicator");
 const chatSessionList = document.querySelector("#chat-session-list");
 const addChatSessionButton = document.querySelector("#add-chat-session");
-const chatSessionCount = document.querySelector("#chat-session-count");
 const toast = document.querySelector("#toast");
 const agentsDialog = document.querySelector("#agents-dialog");
 const agentChoiceList = document.querySelector("#agent-choice-list");
@@ -33,10 +32,19 @@ let toastTimer;
 let skillGenerating = false;
 const chatSessionStorageKey = "dev-agent-chat-sessions";
 const maxChatSessions = 5;
-const taskSessionIds = Array.from(
-    { length: maxChatSessions },
-    (_, index) => `session-${String(index + 1).padStart(2, "0")}`,
-);
+
+function sessionNumber(id) {
+    const match = id.match(/(?:^session-0([1-5])$|-(0[1-5])$)/);
+    return match ? Number(match[1] || match[2]) : null;
+}
+
+function isNamespacedSessionId(id) {
+    return /^session-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-0[1-5]$/i.test(id);
+}
+
+function createSessionId(number) {
+    return `session-${crypto.randomUUID()}-${String(number).padStart(2, "0")}`;
+}
 
 try {
     localStorage.removeItem("dev-agent-google-api-key");
@@ -57,23 +65,37 @@ function createChatSession(id) {
 }
 
 function loadChatSessions() {
-    const firstSessionId = taskSessionIds[0];
     try {
         const stored = JSON.parse(localStorage.getItem(chatSessionStorageKey) || "{}");
         if (!Array.isArray(stored.sessionIds)) {
+            const firstSessionId = createSessionId(1);
             return { sessions: [createChatSession(firstSessionId)], activeSessionId: firstSessionId };
         }
 
+        const firstPreviousId = stored.sessionIds.find(
+            (id) => typeof id === "string" && sessionNumber(id) === 1,
+        );
+        const firstSessionId = firstPreviousId && isNamespacedSessionId(firstPreviousId)
+            ? firstPreviousId
+            : createSessionId(1);
         const ids = [firstSessionId];
-        const migratedIds = new Map([[firstSessionId, firstSessionId]]);
+        const migratedIds = new Map([["session-01", firstSessionId]]);
+        if (firstPreviousId) migratedIds.set(firstPreviousId, firstSessionId);
+        const usedNumbers = new Set([1]);
         for (const previousId of stored.sessionIds) {
             if (typeof previousId !== "string" || migratedIds.has(previousId)) continue;
-            let id = taskSessionIds.includes(previousId) ? previousId : null;
-            if (!id && previousId.startsWith("chat-")) {
-                id = taskSessionIds.find((candidate) => !ids.includes(candidate));
-            }
-            if (!id || ids.includes(id) || ids.length >= maxChatSessions) continue;
+            if (ids.length >= maxChatSessions) break;
+            const previousNumber = sessionNumber(previousId);
+            const number = previousNumber && !usedNumbers.has(previousNumber)
+                ? previousNumber
+                : Array.from({ length: maxChatSessions }, (_, index) => index + 1)
+                    .find((candidate) => !usedNumbers.has(candidate));
+            if (!number) continue;
+            const id = isNamespacedSessionId(previousId) && number === previousNumber
+                ? previousId
+                : createSessionId(number);
             ids.push(id);
+            usedNumbers.add(number);
             migratedIds.set(previousId, id);
         }
         const sessions = ids.map(createChatSession);
@@ -81,6 +103,7 @@ function loadChatSessions() {
         return { sessions, activeSessionId };
     } catch (error) {
         showToast("Could not load saved chat sessions. Starting a new session.", true);
+        const firstSessionId = createSessionId(1);
         return { sessions: [createChatSession(firstSessionId)], activeSessionId: firstSessionId };
     }
 }
@@ -240,7 +263,7 @@ function saveChatSessions() {
 function renderChatSessions() {
     chatSessionList.replaceChildren();
     chatSessions.forEach((session) => {
-        const sessionNumber = Number(session.id.slice(-2));
+        const number = sessionNumber(session.id);
         const tab = document.createElement("div");
         tab.className = "chat-session-tab";
         tab.classList.toggle("is-active", session === activeChatSession);
@@ -248,21 +271,20 @@ function renderChatSessions() {
         button.className = "chat-session-button";
         button.type = "button";
         button.setAttribute("aria-pressed", String(session === activeChatSession));
-        button.textContent = `Session ${sessionNumber}${session.running ? " ·" : ""}`;
-        button.title = session.running
-            ? `Session ${sessionNumber} is working`
-            : `Switch to session ${sessionNumber}`;
+        button.textContent = session.running ? "Working…" : "Chat";
+        button.setAttribute("aria-label", session.running ? "Chat is working" : "Select chat");
+        button.title = session.running ? "Chat is working" : "Switch chat";
         button.addEventListener("click", () => selectChatSession(session));
         tab.append(button);
-        if (session.id !== taskSessionIds[0]) {
+        if (number !== 1) {
             const closeButton = document.createElement("button");
             closeButton.className = "chat-session-close";
             closeButton.type = "button";
             closeButton.textContent = "×";
-            closeButton.setAttribute("aria-label", `Close session ${sessionNumber}`);
+            closeButton.setAttribute("aria-label", "Close chat");
             closeButton.title = session.running
                 ? "Wait for this session to finish before closing it"
-                : `Close session ${sessionNumber}`;
+                : "Close chat";
             closeButton.disabled = session.running;
             closeButton.addEventListener("click", () => closeChatSession(session));
             tab.append(closeButton);
@@ -279,7 +301,6 @@ function renderChatSessions() {
             ? "Maximum of 5 chat sessions reached"
             : "Create new chat session",
     );
-    chatSessionCount.textContent = `${chatSessions.length} of ${maxChatSessions} chat sessions`;
 }
 
 function renderActivityIndicator() {
@@ -329,10 +350,6 @@ function renderActiveChatSession() {
     log.setAttribute("role", "log");
     log.setAttribute("aria-live", "polite");
     for (const entry of activeChatSession.entries) {
-        if (entry.role === "Approval") {
-            log.append(renderCodeApproval(entry, activeChatSession));
-            continue;
-        }
         const line = document.createElement("div");
         line.className = "activity-log-entry";
         const roleName = entry.role.toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -359,7 +376,7 @@ function selectChatSession(session) {
 }
 
 function closeChatSession(session) {
-    if (session.id === taskSessionIds[0] || session.running) return;
+    if (sessionNumber(session.id) === 1 || session.running) return;
     const index = chatSessions.indexOf(session);
     if (index < 0) return;
     session.stream?.close();
@@ -375,8 +392,10 @@ function closeChatSession(session) {
 
 function addChatSession() {
     if (chatSessions.length >= maxChatSessions) return;
-    const id = taskSessionIds.find((candidate) => !chatSessions.some((session) => session.id === candidate));
-    if (!id) return;
+    const number = Array.from({ length: maxChatSessions }, (_, index) => index + 1)
+        .find((candidate) => !chatSessions.some((session) => sessionNumber(session.id) === candidate));
+    if (!number) return;
+    const id = createSessionId(number);
     const session = createChatSession(id);
     chatSessions.push(session);
     selectChatSession(session);
@@ -701,50 +720,6 @@ function appendActivityLog(entry, session = activeChatSession) {
         return;
     }
 
-    if (entry.role === "Approval") {
-        const approval = JSON.parse(entry.content);
-        if (
-            !approval
-            || typeof approval.approval_id !== "string"
-            || typeof approval.file_name !== "string"
-            || typeof approval.original_code !== "string"
-            || typeof approval.proposed_code !== "string"
-        ) {
-            throw new Error("Received an invalid code review request.");
-        }
-        session.entries.push({
-            role: entry.role,
-            approval,
-            decision: null,
-            saved: false,
-            completed: false,
-            submitting: false,
-        });
-        if (session === activeChatSession) renderActiveChatSession();
-        return;
-    }
-    if (entry.role === "ApprovalResult") {
-        const result = JSON.parse(entry.content);
-        if (
-            !result
-            || typeof result.approval_id !== "string"
-            || typeof result.approved !== "boolean"
-            || typeof result.saved !== "boolean"
-        ) {
-            throw new Error("Received an invalid code review result.");
-        }
-        const approvalEntry = session.entries.find(
-            (item) => item.role === "Approval" && item.approval.approval_id === result.approval_id,
-        );
-        if (approvalEntry) {
-            approvalEntry.decision = result.approved;
-            approvalEntry.saved = result.saved;
-            approvalEntry.completed = true;
-        }
-        if (session === activeChatSession) renderActiveChatSession();
-        return;
-    }
-
     session.entries.push({ role: entry.role, content: entry.content });
     if (entry.role === "System") {
         if (entry.content === "Task started") session.status = "running";
@@ -752,106 +727,6 @@ function appendActivityLog(entry, session = activeChatSession) {
         if (entry.content === "Task failed") session.status = "error";
     }
     if (session === activeChatSession) renderActiveChatSession();
-}
-
-function renderCodeApproval(entry, session) {
-    const card = document.createElement("section");
-    card.className = "activity-log-entry role-approval";
-    const role = document.createElement("span");
-    role.className = "activity-log-role";
-    role.textContent = "REVIEW CODE CHANGE";
-    const filename = document.createElement("strong");
-    filename.className = "approval-filename";
-    filename.textContent = entry.approval.file_name;
-    const instructions = document.createElement("p");
-    instructions.className = "approval-description";
-    instructions.textContent = "Review the proposed file contents. The agent will not save this change until you approve it.";
-
-    const proposedDetails = document.createElement("details");
-    proposedDetails.className = "approval-code";
-    proposedDetails.open = true;
-    const proposedSummary = document.createElement("summary");
-    proposedSummary.textContent = "Proposed code";
-    const proposed = document.createElement("pre");
-    proposed.textContent = entry.approval.proposed_code;
-    proposedDetails.append(proposedSummary, proposed);
-
-    const originalDetails = document.createElement("details");
-    originalDetails.className = "approval-code";
-    const originalSummary = document.createElement("summary");
-    originalSummary.textContent = "Current code";
-    const original = document.createElement("pre");
-    original.textContent = entry.approval.original_code;
-    originalDetails.append(originalSummary, original);
-
-    card.append(role, filename, instructions, proposedDetails, originalDetails);
-    if (entry.completed) {
-        const status = document.createElement("p");
-        status.className = "approval-status";
-        status.textContent = entry.decision
-            ? entry.saved
-                ? "Approved — changes saved."
-                : "Approved, but the file could not be saved."
-            : "Declined — file left unchanged.";
-        card.append(status);
-        return card;
-    }
-    if (entry.decision !== null) {
-        const status = document.createElement("p");
-        status.className = "approval-status";
-        status.textContent = entry.decision
-            ? "Approved — applying changes…"
-            : "Declined — recording your decision…";
-        card.append(status);
-        return card;
-    }
-    if (entry.unavailable) {
-        const status = document.createElement("p");
-        status.className = "approval-status";
-        status.textContent = "This review request is no longer active. Check the project files to confirm their current contents.";
-        card.append(status);
-        return card;
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "approval-actions";
-    const reject = document.createElement("button");
-    reject.type = "button";
-    reject.className = "secondary-button";
-    reject.textContent = "Decline";
-    const approve = document.createElement("button");
-    approve.type = "button";
-    approve.className = "primary-button";
-    approve.textContent = "Approve and save";
-    for (const button of [reject, approve]) button.disabled = entry.submitting;
-    const submitDecision = async (approved) => {
-        entry.submitting = true;
-        renderActiveChatSession();
-        try {
-            const result = await api(
-                `/api/tasks/${encodeURIComponent(session.id)}/approvals/${encodeURIComponent(entry.approval.approval_id)}`,
-                { method: "POST", body: JSON.stringify({ approved }) },
-            );
-            entry.decision = result.approved;
-            showToast(approved ? "Code change approved." : "Code change declined.");
-        } catch (error) {
-            entry.submitting = false;
-            if (error.status === 404) entry.unavailable = true;
-            showToast(error.message, true);
-        }
-        if (session === activeChatSession) renderActiveChatSession();
-    };
-    reject.addEventListener("click", () => submitDecision(false));
-    approve.addEventListener("click", () => submitDecision(true));
-    actions.append(reject, approve);
-    if (entry.submitting) {
-        const waiting = document.createElement("p");
-        waiting.className = "approval-status";
-        waiting.textContent = "Sending your decision…";
-        card.append(waiting);
-    }
-    card.append(actions);
-    return card;
 }
 
 function connectTaskLogStream(session) {

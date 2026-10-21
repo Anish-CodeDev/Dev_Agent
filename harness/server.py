@@ -1,6 +1,7 @@
 import json
 import logging
 import asyncio
+from uuid import UUID
 from pathlib import Path, PurePosixPath
 from decision_model_utils.utils import ask_systemone
 import uvicorn
@@ -40,6 +41,22 @@ logger = logging.getLogger(__name__)
 redis_streams = RedisUtils()
 TASK_SESSION_IDS = frozenset(f"session-{number:02d}" for number in range(1, 6))
 DEFAULT_TASK_SESSION_ID = "session-01"
+
+
+def _is_valid_task_session_id(session_id):
+    if not isinstance(session_id, str):
+        return False
+    if session_id in TASK_SESSION_IDS:
+        return True
+    if not session_id.startswith("session-"):
+        return False
+    namespace, separator, number = session_id.rpartition("-")
+    if not separator or number not in {f"{value:02d}" for value in range(1, 6)}:
+        return False
+    try:
+        return str(UUID(namespace.removeprefix("session-"))) == namespace.removeprefix("session-")
+    except ValueError:
+        return False
 
 
 @main.middleware("http")
@@ -574,10 +591,10 @@ async def stream_task_logs(
     session_id: str,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ):
-    if session_id not in TASK_SESSION_IDS:
+    if not _is_valid_task_session_id(session_id):
         raise HTTPException(
             status_code=400,
-            detail="Session ID must be between 'session-01' and 'session-05'.",
+            detail="Session ID must be a valid chat session ID.",
         )
     if last_event_id is not None and (
         len(last_event_id.split("-")) != 2
@@ -592,33 +609,6 @@ async def stream_task_logs(
             "X-Accel-Buffering": "no",
         },
     )
-
-
-@main.post("/api/tasks/{session_id}/approvals/{approval_id}")
-async def resolve_task_approval(
-    session_id: str,
-    approval_id: str,
-    request: Request,
-):
-    if session_id not in TASK_SESSION_IDS:
-        return JSONResponse(
-            {"error": "Session ID must be between 'session-01' and 'session-05'."},
-            status_code=400,
-        )
-    try:
-        payload = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return JSONResponse({"error": "Expected a JSON request body."}, status_code=400)
-    if not isinstance(payload, dict) or not isinstance(payload.get("approved"), bool):
-        return JSONResponse({"error": "Approval decision must be true or false."}, status_code=400)
-
-    approved = payload["approved"]
-    if not await redis_streams.resolve_approval(session_id, approval_id, approved):
-        return JSONResponse(
-            {"error": "This code review request is no longer active."},
-            status_code=404,
-        )
-    return {"approval_id": approval_id, "approved": approved}
 
 
 @main.post("/api/tasks")
@@ -650,9 +640,9 @@ async def create_task(
     session_id = payload.get("session_id")
     if session_id is None:
         session_id = DEFAULT_TASK_SESSION_ID
-    if not isinstance(session_id, str) or session_id not in TASK_SESSION_IDS:
+    if not _is_valid_task_session_id(session_id):
         return JSONResponse(
-            {"error": "Session ID must be between 'session-01' and 'session-05'."},
+            {"error": "Session ID must be a valid chat session ID."},
             status_code=400,
         )
 

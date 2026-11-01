@@ -355,8 +355,8 @@ async def run_plan_task(user_input, session_id=None):
                 res = ''
             return {
                 "app":"None",
-                "message":res,
-                "steps":1
+                "message":"casual_response",
+                "steps":0
             }
     finally:
         in_planning_mode = False

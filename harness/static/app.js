@@ -772,11 +772,15 @@ document.querySelector("#task-form").addEventListener("submit", async (event) =>
                 session_id: session.id,
             }),
         });
-        appendActivityLog({ role: "AI", content: result.message }, session);
+        if(result.message != "casual_response"){
+            appendActivityLog({ role: "AI", content: result.message }, session);
+        }
         session.status = "done";
         renderChatSessions();
         if (session === activeChatSession) renderActiveChatSession();
+        if(result.message !="casual_response"){
         showToast("Build finished successfully.");
+        }
         await loadApps(result.app);
     } catch (error) {
         appendActivityLog({ role: "AI", content: error.message }, session);

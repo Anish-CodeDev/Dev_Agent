@@ -3,8 +3,10 @@ import requests
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from google_api import get_google_client
-client = get_google_client()
+from google import genai
+from google_api import get_configured_google_api_key
+from dotenv import load_dotenv
+load_dotenv()
 
 def ask_systemone(state,question=None):
     low = 0.3
@@ -20,6 +22,8 @@ def ask_systemone(state,question=None):
         }
     }
     '''
+    client = genai.Client(api_key=get_configured_google_api_key(),http_options={"api_version": "v1beta"})
+    #client = genai.Client(http_options={"api_version": "v1beta"})
     res = client.decisions.create(
         model='gemini-decision-1',
         input=state,

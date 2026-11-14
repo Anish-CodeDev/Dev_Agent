@@ -179,7 +179,7 @@ def validate_environment_setting(name: str, value: str) -> str | None:
 
 @lru_cache(maxsize=1)
 def _configured_google_client(api_key: str | None) -> genai.Client:
-    return genai.Client(api_key=api_key) if api_key else genai.Client()
+    return genai.Client(api_key=api_key,http_options={"api_version":"beta"}) if api_key else genai.Client()
 
 
 def get_google_client() -> genai.Client:

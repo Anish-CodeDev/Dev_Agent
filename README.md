@@ -384,13 +384,9 @@ Build a login UI with React with the help of react-agent.
 
 ## Roadmap
 
-* [ ] Web UI for agent management
-
-* [ ] Multi-agent parallel execution
-
-* [ ] CI/CD integration
-
+* [ ] Interaction with generated app in real time(using web sockets)
 * [ ] Autonomous debugging
+* [ ] Integration with RepoLens(A RAG based repository intelligence software) MCP server
 
 ***
 

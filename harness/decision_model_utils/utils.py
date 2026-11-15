@@ -1,5 +1,3 @@
-# Command to run to spinup model backend: strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --port 8080
-import requests
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

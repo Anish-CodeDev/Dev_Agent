@@ -256,12 +256,8 @@ kubectl get pods -o wide
 kubectl exec -it <backend-pod> -- dmesg | head -1
 # Should show a gVisor-specific fake kernel banner, not your real host kernel
 ```
-### 7. Run the decision-model server
-```bash
-pip install strands-decider
-strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --host 0.0.0.0 --port 8080
-```
-### 8. Open the web workspace
+
+### 7. Open the web workspace
 
 Forward the dashboard port to your machine and leave it running:
 
@@ -319,7 +315,6 @@ Open `http://localhost:8000` to submit a build task and browse generated project
 
 ### Commands to be executed:
 ```bash
-strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --host 0.0.0.0 --port 8080
 kubectl port-forward -n traefik svc/traefik
 ```
 Access the dashboard at localhost:8000
